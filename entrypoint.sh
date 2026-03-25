@@ -34,6 +34,12 @@ else
     echo "==> uMod disabled, skipping."
 fi
 
+# Setup uMod auto-update cron if enabled
+if [ "${UMOD_ENABLED:-1}" = "1" ] && [ "${UMOD_AUTO_UPDATE:-1}" = "1" ]; then
+    /scripts/setup-cron.sh
+    cron
+fi
+
 echo "==> Starting Rust Dedicated Server..."
 exec ./RustDedicated \
     -batchmode \

@@ -24,6 +24,8 @@ services:
       - RUST_APP_PORT=${RUST_APP_PORT}
       - UMOD_ENABLED=${UMOD_ENABLED:-1}
       - RUST_UPDATE_ON_START=${RUST_UPDATE_ON_START:-1}
+      - UMOD_AUTO_UPDATE=${UMOD_AUTO_UPDATE:-1}
+      - UMOD_UPDATE_SCHEDULE=${UMOD_UPDATE_SCHEDULE:-0 */6 * * *}
     volumes:
       - rust-data:/rust
       - ./plugins:/plugins:ro
