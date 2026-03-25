@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+
+RUST_SERVER_DIR="/rust"
+STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
+
+echo "==> Updating Rust Dedicated Server (AppID 258550)..."
+${STEAMCMD} \
+    +@sSteamCmdForcePlatformType linux \
+    +force_install_dir ${RUST_SERVER_DIR} \
+    +login anonymous \
+    +app_update 258550 validate \
+    +quit
+
+cd ${RUST_SERVER_DIR}
+
+echo "==> Starting Rust Dedicated Server..."
+exec ./RustDedicated \
+    -batchmode \
+    -nographics \
+    -load \
+    +server.port "${RUST_SERVER_PORT:-28015}" \
+    +server.queryport "${RUST_SERVER_QUERYPORT:-28016}" \
+    +rcon.port "${RUST_RCON_PORT:-28016}" \
+    +rcon.web "${RUST_RCON_WEB:-1}" \
+    +rcon.password "${RUST_RCON_PASSWORD:-changeme}" \
+    +server.hostname "${RUST_SERVER_NAME:-Rust Server}" \
+    +server.identity "${RUST_SERVER_IDENTITY:-docker}" \
+    +server.seed "${RUST_SERVER_SEED:-12345}" \
+    +server.worldsize "${RUST_SERVER_WORLDSIZE:-3500}" \
+    +server.maxplayers "${RUST_SERVER_MAXPLAYERS:-100}" \
+    +server.secure 1 \
+    +app.port "${RUST_APP_PORT:-28082}" \
+    "$@"
