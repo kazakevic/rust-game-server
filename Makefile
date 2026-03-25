@@ -1,4 +1,4 @@
-.PHONY: build up down restart logs rcon shell clean plugins update update-umod
+.PHONY: build up down restart logs rcon shell clean plugins reload update update-umod
 
 build:
 	docker compose build
@@ -27,6 +27,9 @@ update:
 
 plugins:
 	docker compose exec rust-server /scripts/install-plugins.sh
+
+reload:
+	docker compose exec rust-server bash -c 'cp /plugins/*.cs /rust/oxide/plugins/ && echo "Plugins copied — Oxide will auto-reload."'
 
 update-umod:
 	docker compose exec rust-server /scripts/update-umod.sh

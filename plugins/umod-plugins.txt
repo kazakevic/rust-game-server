@@ -12,3 +12,4 @@ Kits
 Vanish
 NTeleportation
 StackSizeController
+HumanNPC

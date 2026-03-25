@@ -26,6 +26,8 @@ namespace Oxide.Plugins
 
         private const string PermAdmin = "gungame.admin";
 
+        private bool _testMode = false;
+
         #endregion
 
         #region Configuration
@@ -137,9 +139,12 @@ namespace Oxide.Plugins
                 ["PlayerNotFound"] = "Player not found.",
                 ["InvalidLevel"] = "Invalid level. Must be between 1 and {0}.",
                 ["NoPermission"] = "You don't have permission to use this command.",
-                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
+                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg testmode — Toggle test mode: NPC kills grant XP (admin)\n/gg wipe — Reset all data (admin)",
                 ["KitNotFound"] = "<color=#ff0000>Kit '{0}' not found. Ask an admin to create it.</color>",
-                ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>"
+                ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>",
+                ["TestModeOn"] = "<color=#00ff00>Test Mode ENABLED.</color> NPC kills now grant XP.",
+                ["TestModeOff"] = "<color=#ff6600>Test Mode DISABLED.</color> NPC kills are ignored.",
+                ["TestModeStatus"] = "Test Mode is currently <color=#ffff00>{0}</color>."
             }, this);
         }
 
@@ -320,6 +325,37 @@ namespace Oxide.Plugins
             return data;
         }
 
+        private int CalculateXP(PlayerData killerData, HitInfo info)
+        {
+            int xpGained = _config.XPPerKill;
+
+            if (info.isHeadshot)
+            {
+                xpGained += _config.HeadshotBonusXP;
+                killerData.Headshots++;
+            }
+
+            if (info.IsProjectile())
+            {
+                int distanceBonusUnits = (int)(info.ProjectileDistance / 50f);
+                if (distanceBonusUnits > 0)
+                    xpGained += distanceBonusUnits * _config.DistanceBonusXPPer50m;
+            }
+
+            return xpGained;
+        }
+
+        private bool CheckLevelUp(PlayerData data)
+        {
+            bool leveledUp = false;
+            while (data.Level < _config.MaxLevel && data.XP >= GetXPForNextLevel(data.Level))
+            {
+                data.Level++;
+                leveledUp = true;
+            }
+            return leveledUp;
+        }
+
         private int GetXPForNextLevel(int currentLevel)
         {
             int nextLevel = currentLevel + 1;
@@ -331,72 +367,93 @@ namespace Oxide.Plugins
 
         #region Hooks
 
+        private bool IsNpc(BasePlayer player)
+        {
+            return player.IsNpc || !player.userID.IsSteamId();
+        }
+
         private void OnPlayerDeath(BasePlayer victim, HitInfo info)
         {
             if (victim == null) return;
 
-            // Track victim death
-            var victimData = GetOrCreatePlayer(victim);
-            victimData.Deaths++;
-            victimData.Dirty = true;
-            SavePlayer(victimData);
-
             // Get killer
             BasePlayer killer = info?.InitiatorPlayer;
+
+            // NPC died — only give XP to killer if test mode is on
+            if (IsNpc(victim))
+            {
+                if (!_testMode || killer == null || IsNpc(killer)) return;
+
+                var killerData = GetOrCreatePlayer(killer);
+                killerData.Kills++;
+
+                // Calculate and award XP (skip victim tracking for NPCs)
+                int xpGained = CalculateXP(killerData, info);
+                killerData.XP += xpGained;
+                killerData.Dirty = true;
+
+                bool leveledUp = CheckLevelUp(killerData);
+
+                Message(killer, "XPGained", xpGained, killerData.XP, killerData.Level);
+                if (leveledUp)
+                {
+                    if (killerData.Level >= _config.MaxLevel)
+                        Message(killer, "MaxLevel");
+                    else
+                        Message(killer, "LevelUp", killerData.Level);
+                    EquipKit(killer, killerData.Level);
+                }
+
+                SavePlayer(killerData);
+                return;
+            }
+
+            // NPC killed a real player — don't give NPC any XP
+            if (killer != null && IsNpc(killer))
+            {
+                // Still track the victim's death
+                var victimData = GetOrCreatePlayer(victim);
+                victimData.Deaths++;
+                victimData.Dirty = true;
+                SavePlayer(victimData);
+                return;
+            }
+
+            // Track victim death
+            var victimDataNormal = GetOrCreatePlayer(victim);
+            victimDataNormal.Deaths++;
+            victimDataNormal.Dirty = true;
+            SavePlayer(victimDataNormal);
+
             if (killer == null || killer == victim) return;
             if (killer.userID == victim.userID) return;
 
             // Track killer stats
-            var killerData = GetOrCreatePlayer(killer);
-            killerData.Kills++;
+            var killerData2 = GetOrCreatePlayer(killer);
+            killerData2.Kills++;
 
-            // Calculate XP
-            int xpGained = _config.XPPerKill;
-
-            // Headshot bonus
-            bool isHeadshot = info.isHeadshot;
-            if (isHeadshot)
-            {
-                xpGained += _config.HeadshotBonusXP;
-                killerData.Headshots++;
-            }
-
-            // Distance bonus
-            if (info.IsProjectile())
-            {
-                float distance = info.ProjectileDistance;
-                int distanceBonusUnits = (int)(distance / 50f);
-                if (distanceBonusUnits > 0)
-                    xpGained += distanceBonusUnits * _config.DistanceBonusXPPer50m;
-            }
-
-            killerData.XP += xpGained;
-            killerData.Dirty = true;
+            // Calculate and award XP
+            int xpGained = CalculateXP(killerData2, info);
+            killerData2.XP += xpGained;
+            killerData2.Dirty = true;
 
             // Check level up
-            bool leveledUp = false;
-            while (killerData.Level < _config.MaxLevel && killerData.XP >= GetXPForNextLevel(killerData.Level))
-            {
-                killerData.Level++;
-                leveledUp = true;
-            }
+            bool leveledUp2 = CheckLevelUp(killerData2);
 
             // Notify killer
-            int nextLevelXP = GetXPForNextLevel(killerData.Level);
-            string xpDisplay = nextLevelXP == int.MaxValue ? killerData.XP.ToString() : killerData.XP.ToString();
-            Message(killer, "XPGained", xpGained, killerData.XP, killerData.Level);
+            Message(killer, "XPGained", xpGained, killerData2.XP, killerData2.Level);
 
-            if (leveledUp)
+            if (leveledUp2)
             {
-                if (killerData.Level >= _config.MaxLevel)
+                if (killerData2.Level >= _config.MaxLevel)
                     Message(killer, "MaxLevel");
                 else
-                    Message(killer, "LevelUp", killerData.Level);
+                    Message(killer, "LevelUp", killerData2.Level);
 
-                EquipKit(killer, killerData.Level);
+                EquipKit(killer, killerData2.Level);
             }
 
-            SavePlayer(killerData);
+            SavePlayer(killerData2);
         }
 
         private void OnPlayerRespawned(BasePlayer player)
@@ -516,6 +573,12 @@ namespace Oxide.Plugins
                     {
                         Message(player, "WipeConfirm");
                     }
+                    break;
+
+                case "testmode":
+                    if (!HasAdmin(player)) return;
+                    _testMode = !_testMode;
+                    Message(player, _testMode ? "TestModeOn" : "TestModeOff");
                     break;
 
                 case "help":
