@@ -48,6 +48,12 @@ if [ -d "/cfg" ] && [ "$(ls -A /cfg/*.cfg 2>/dev/null)" ]; then
     cp /cfg/*.cfg "${SERVER_CFG_DIR}/"
 fi
 
+# Fix Steamworks assembly reference — server code references Win64 but Linux only has Posix
+if [ -f "Facepunch.Steamworks.Posix.dll" ] && [ ! -f "Facepunch.Steamworks.Win64.dll" ]; then
+    echo "==> Symlinking Facepunch.Steamworks.Posix.dll -> Win64 for companion app support..."
+    ln -sf Facepunch.Steamworks.Posix.dll Facepunch.Steamworks.Win64.dll
+fi
+
 echo "==> Starting Rust Dedicated Server..."
 exec ./RustDedicated \
     -batchmode \
