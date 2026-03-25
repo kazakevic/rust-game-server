@@ -433,17 +433,17 @@ namespace Oxide.Plugins
             killerData2.Kills++;
 
             // Calculate and award XP
-            int xpGained = CalculateXP(killerData2, info);
-            killerData2.XP += xpGained;
+            int xpEarned = CalculateXP(killerData2, info);
+            killerData2.XP += xpEarned;
             killerData2.Dirty = true;
 
             // Check level up
-            bool leveledUp2 = CheckLevelUp(killerData2);
+            bool didLevelUp = CheckLevelUp(killerData2);
 
             // Notify killer
-            Message(killer, "XPGained", xpGained, killerData2.XP, killerData2.Level);
+            Message(killer, "XPGained", xpEarned, killerData2.XP, killerData2.Level);
 
-            if (leveledUp2)
+            if (didLevelUp)
             {
                 if (killerData2.Level >= _config.MaxLevel)
                     Message(killer, "MaxLevel");
