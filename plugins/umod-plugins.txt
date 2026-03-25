@@ -12,3 +12,6 @@ Kits
 Vanish
 NTeleportation
 StackSizeController
+HumanNPC
+PathFinding
+Waypoints
