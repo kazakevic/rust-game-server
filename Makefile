@@ -1,4 +1,4 @@
-.PHONY: build up down restart logs rcon shell clean
+.PHONY: build up down restart logs rcon shell clean plugins
 
 build:
 	docker compose build
@@ -20,6 +20,9 @@ rcon:
 
 shell:
 	docker compose exec rust-server bash
+
+plugins:
+	docker compose exec rust-server /scripts/install-plugins.sh
 
 clean:
 	docker compose down -v

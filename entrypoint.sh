@@ -7,12 +7,27 @@ STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
 echo "==> Updating Rust Dedicated Server (AppID 258550)..."
 ${STEAMCMD} \
     +@sSteamCmdForcePlatformType linux \
-    +force_install_dir ${RUST_SERVER_DIR} \
+    +force_install_dir "${RUST_SERVER_DIR}" \
     +login anonymous \
     +app_update 258550 validate \
     +quit
 
-cd ${RUST_SERVER_DIR}
+cd "${RUST_SERVER_DIR}"
+
+if [ ! -f "./RustDedicated" ]; then
+    echo "ERROR: RustDedicated binary not found in ${RUST_SERVER_DIR}"
+    echo "SteamCMD may have failed to download the server files."
+    ls -la "${RUST_SERVER_DIR}"
+    exit 1
+fi
+
+# Install uMod (Oxide) if enabled
+if [ "${UMOD_ENABLED:-1}" = "1" ]; then
+    /scripts/install-umod.sh
+    /scripts/install-plugins.sh
+else
+    echo "==> uMod disabled, skipping."
+fi
 
 echo "==> Starting Rust Dedicated Server..."
 exec ./RustDedicated \
@@ -20,7 +35,7 @@ exec ./RustDedicated \
     -nographics \
     -load \
     +server.port "${RUST_SERVER_PORT:-28015}" \
-    +server.queryport "${RUST_SERVER_QUERYPORT:-28016}" \
+    +server.queryport "${RUST_SERVER_QUERYPORT:-28017}" \
     +rcon.port "${RUST_RCON_PORT:-28016}" \
     +rcon.web "${RUST_RCON_WEB:-1}" \
     +rcon.password "${RUST_RCON_PASSWORD:-changeme}" \

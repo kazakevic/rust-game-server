@@ -7,6 +7,9 @@ RUN apt-get update && \
         lib32gcc-s1 \
         libgdiplus \
         ca-certificates \
+        curl \
+        unzip \
+        jq \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUST_SERVER_DIR="/rust"
@@ -15,7 +18,8 @@ RUN mkdir -p ${RUST_SERVER_DIR} && \
     chown -R steam:steam ${RUST_SERVER_DIR}
 
 COPY --chown=steam:steam entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chown=steam:steam scripts/ /scripts/
+RUN chmod +x /entrypoint.sh /scripts/*.sh
 
 USER steam
 

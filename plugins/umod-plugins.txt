@@ -1,0 +1,10 @@
+# uMod Plugin List
+# Add one plugin name per line (must match the name on umod.org)
+# Lines starting with # are comments
+#
+# Example:
+#   GatherManager
+#   Vanish
+#   NTeleportation
+
+GatherManager
