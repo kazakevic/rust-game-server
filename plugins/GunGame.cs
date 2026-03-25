@@ -527,12 +527,7 @@ namespace Oxide.Plugins
 
         #region Test NPC Spawning
 
-        private static readonly string[] NpcPrefabs = new[]
-        {
-            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_heavy.prefab",
-            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_roam.prefab",
-            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_patrol.prefab"
-        };
+        private const string HumanPrefab = "assets/rust.ai/agents/npcplayer/humannpc/humanplayer.prefab";
 
         private void SpawnTestNPCs(BasePlayer player, int count)
         {
@@ -552,12 +547,10 @@ namespace Oxide.Plugins
                 if (Physics.Raycast(spawnPos + Vector3.up * 10f, Vector3.down, out hit, 20f, Rust.Layers.Solid))
                     spawnPos = hit.point;
 
-                string prefab = NpcPrefabs[_rng.Next(NpcPrefabs.Length)];
-                var entity = GameManager.server.CreateEntity(prefab, spawnPos, Quaternion.LookRotation(-forward));
-
+                var entity = GameManager.server.CreateEntity(HumanPrefab, spawnPos, Quaternion.LookRotation(-forward));
                 if (entity == null) continue;
 
-                var npc = entity as ScientistNPC;
+                var npc = entity as HumanNPC;
                 if (npc == null)
                 {
                     entity.Kill();
@@ -565,6 +558,9 @@ namespace Oxide.Plugins
                 }
 
                 npc.Spawn();
+
+                // Enable hostile AI so it fights back
+                npc.SetAimDirection((-forward).normalized);
 
                 // Assign a random level kit
                 int randomLevel = _rng.Next(1, _config.MaxLevel + 1);
