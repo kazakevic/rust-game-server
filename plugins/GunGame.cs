@@ -527,7 +527,11 @@ namespace Oxide.Plugins
 
         #region Test NPC Spawning
 
-        private const string HumanPrefab = "assets/rust.ai/agents/npcplayer/humannpc/humanplayer.prefab";
+        private static readonly string[] HumanPrefabs = new[]
+        {
+            "assets/prefabs/npc/scarecrow/scarecrow.prefab",
+            "assets/prefabs/npc/murderer/murderer.prefab"
+        };
 
         private void SpawnTestNPCs(BasePlayer player, int count)
         {
@@ -547,10 +551,12 @@ namespace Oxide.Plugins
                 if (Physics.Raycast(spawnPos + Vector3.up * 10f, Vector3.down, out hit, 20f, Rust.Layers.Solid))
                     spawnPos = hit.point;
 
-                var entity = GameManager.server.CreateEntity(HumanPrefab, spawnPos, Quaternion.LookRotation(-forward));
+                // Alternate between scarecrow and murderer prefabs
+                string prefab = HumanPrefabs[i % HumanPrefabs.Length];
+                var entity = GameManager.server.CreateEntity(prefab, spawnPos, Quaternion.LookRotation(-forward));
                 if (entity == null) continue;
 
-                var npc = entity as HumanNPC;
+                var npc = entity as NPCPlayer;
                 if (npc == null)
                 {
                     entity.Kill();
@@ -558,9 +564,6 @@ namespace Oxide.Plugins
                 }
 
                 npc.Spawn();
-
-                // Enable hostile AI so it fights back
-                npc.SetAimDirection((-forward).normalized);
 
                 // Assign a random level kit
                 int randomLevel = _rng.Next(1, _config.MaxLevel + 1);
