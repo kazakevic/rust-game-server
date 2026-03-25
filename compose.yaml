@@ -29,6 +29,7 @@ services:
     volumes:
       - rust-data:/rust
       - ./plugins:/plugins:ro
+      - ./cfg:/cfg:ro
     stdin_open: true
     tty: true
 

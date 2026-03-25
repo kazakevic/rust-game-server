@@ -40,6 +40,14 @@ if [ "${UMOD_ENABLED:-1}" = "1" ] && [ "${UMOD_AUTO_UPDATE:-1}" = "1" ]; then
     cron
 fi
 
+# Copy server cfg files (users.cfg, etc.)
+SERVER_CFG_DIR="${RUST_SERVER_DIR}/server/${RUST_SERVER_IDENTITY:-docker}/cfg"
+mkdir -p "${SERVER_CFG_DIR}"
+if [ -d "/cfg" ] && [ "$(ls -A /cfg/*.cfg 2>/dev/null)" ]; then
+    echo "==> Copying server cfg files..."
+    cp /cfg/*.cfg "${SERVER_CFG_DIR}/"
+fi
+
 echo "==> Starting Rust Dedicated Server..."
 exec ./RustDedicated \
     -batchmode \

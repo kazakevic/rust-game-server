@@ -8,3 +8,7 @@
 #   NTeleportation
 
 GatherManager
+Kits
+Vanish
+NTeleportation
+StackSizeController
