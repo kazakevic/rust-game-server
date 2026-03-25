@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 
 namespace Oxide.Plugins
 {
@@ -27,6 +28,9 @@ namespace Oxide.Plugins
         private const string PermAdmin = "gungame.admin";
 
         private bool _testMode = false;
+
+        private readonly List<BaseEntity> _spawnedNPCs = new List<BaseEntity>();
+        private readonly System.Random _rng = new System.Random();
 
         #endregion
 
@@ -139,12 +143,16 @@ namespace Oxide.Plugins
                 ["PlayerNotFound"] = "Player not found.",
                 ["InvalidLevel"] = "Invalid level. Must be between 1 and {0}.",
                 ["NoPermission"] = "You don't have permission to use this command.",
-                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg testmode — Toggle test mode: NPC kills grant XP (admin)\n/gg wipe — Reset all data (admin)",
+                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg testmode — Toggle test mode: NPC kills grant XP (admin)\n/gg spawn [count] — Spawn test NPCs with random kits (admin)\n/gg despawn — Remove all test NPCs (admin)\n/gg wipe — Reset all data (admin)",
                 ["KitNotFound"] = "<color=#ff0000>Kit '{0}' not found. Ask an admin to create it.</color>",
                 ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>",
                 ["TestModeOn"] = "<color=#00ff00>Test Mode ENABLED.</color> NPC kills now grant XP.",
                 ["TestModeOff"] = "<color=#ff6600>Test Mode DISABLED.</color> NPC kills are ignored.",
-                ["TestModeStatus"] = "Test Mode is currently <color=#ffff00>{0}</color>."
+                ["TestModeStatus"] = "Test Mode is currently <color=#ffff00>{0}</color>.",
+                ["SpawnedNPCs"] = "<color=#00ff00>Spawned {0} test NPC(s)</color> with random level kits. Test mode enabled.",
+                ["DespawnedNPCs"] = "<color=#ff6600>Removed {0} test NPC(s).</color>",
+                ["NoNPCs"] = "No test NPCs to remove.",
+                ["SpawnFailed"] = "<color=#ff0000>Failed to spawn NPC. Are you in a valid position?</color>"
             }, this);
         }
 
@@ -179,6 +187,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
+            CleanupTestNPCs();
             SaveAllPlayers();
             CloseDatabase();
         }
@@ -464,7 +473,12 @@ namespace Oxide.Plugins
             timer.Once(0.5f, () =>
             {
                 if (player != null && player.IsConnected)
+                {
                     EquipKit(player, data.Level);
+                    int nextXP = GetXPForNextLevel(data.Level);
+                    string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{data.XP}/{nextXP}";
+                    Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots);
+                }
             });
         }
 
@@ -507,6 +521,123 @@ namespace Oxide.Plugins
                 Message(player, "KitNotFound", kitName);
                 PrintWarning($"Failed to give kit '{kitName}' to {player.displayName}: {errorMsg}");
             }
+        }
+
+        #endregion
+
+        #region Test NPC Spawning
+
+        private static readonly string[] NpcPrefabs = new[]
+        {
+            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_heavy.prefab",
+            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_roam.prefab",
+            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_patrol.prefab"
+        };
+
+        private void SpawnTestNPCs(BasePlayer player, int count)
+        {
+            int spawned = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                // Spread NPCs in a semicircle in front of the player
+                float angle = (i - count / 2f) * 30f;
+                Vector3 forward = Quaternion.Euler(0, angle, 0) * player.eyes.HeadForward();
+                forward.y = 0;
+                forward.Normalize();
+                Vector3 spawnPos = player.transform.position + forward * 8f;
+
+                // Raycast down to find ground
+                RaycastHit hit;
+                if (Physics.Raycast(spawnPos + Vector3.up * 10f, Vector3.down, out hit, 20f, Rust.Layers.Solid))
+                    spawnPos = hit.point;
+
+                string prefab = NpcPrefabs[_rng.Next(NpcPrefabs.Length)];
+                var entity = GameManager.server.CreateEntity(prefab, spawnPos, Quaternion.LookRotation(-forward));
+
+                if (entity == null) continue;
+
+                var npc = entity as ScientistNPC;
+                if (npc == null)
+                {
+                    entity.Kill();
+                    continue;
+                }
+
+                npc.Spawn();
+
+                // Assign a random level kit
+                int randomLevel = _rng.Next(1, _config.MaxLevel + 1);
+                timer.Once(0.5f, () =>
+                {
+                    if (npc == null || npc.IsDestroyed) return;
+
+                    npc.inventory.Strip();
+
+                    if (Kits != null)
+                    {
+                        string kitName = $"{_config.KitPrefix}{randomLevel}";
+                        Kits.Call("GiveKit", npc, kitName);
+                    }
+
+                    // Set display name to show level
+                    npc.displayName = $"Bot Lv.{randomLevel}";
+
+                    // Equip held item so NPC uses it
+                    var belt = npc.inventory.containerBelt;
+                    if (belt != null)
+                    {
+                        var firstItem = belt.GetSlot(0);
+                        if (firstItem != null)
+                        {
+                            npc.UpdateActiveItem(firstItem.uid);
+                        }
+                    }
+
+                    npc.SendNetworkUpdateImmediate();
+                });
+
+                _spawnedNPCs.Add(npc);
+                spawned++;
+            }
+
+            if (spawned > 0)
+            {
+                // Auto-enable test mode so kills grant XP
+                if (!_testMode)
+                    _testMode = true;
+
+                Message(player, "SpawnedNPCs", spawned);
+            }
+            else
+            {
+                Message(player, "SpawnFailed");
+            }
+        }
+
+        private void DespawnTestNPCs(BasePlayer player)
+        {
+            int removed = CleanupTestNPCs();
+
+            if (removed > 0)
+                Message(player, "DespawnedNPCs", removed);
+            else
+                Message(player, "NoNPCs");
+        }
+
+        private int CleanupTestNPCs()
+        {
+            int removed = 0;
+            foreach (var entity in _spawnedNPCs)
+            {
+                if (entity != null && !entity.IsDestroyed)
+                {
+                    entity.Kill();
+                    removed++;
+                }
+            }
+            _spawnedNPCs.Clear();
+            return removed;
         }
 
         #endregion
@@ -579,6 +710,19 @@ namespace Oxide.Plugins
                     if (!HasAdmin(player)) return;
                     _testMode = !_testMode;
                     Message(player, _testMode ? "TestModeOn" : "TestModeOff");
+                    break;
+
+                case "spawn":
+                    if (!HasAdmin(player)) return;
+                    int spawnCount = 1;
+                    if (args.Length >= 2) int.TryParse(args[1], out spawnCount);
+                    spawnCount = Math.Max(1, Math.Min(spawnCount, 10));
+                    SpawnTestNPCs(player, spawnCount);
+                    break;
+
+                case "despawn":
+                    if (!HasAdmin(player)) return;
+                    DespawnTestNPCs(player);
                     break;
 
                 case "help":
