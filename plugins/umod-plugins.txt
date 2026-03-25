@@ -13,3 +13,4 @@ Vanish
 NTeleportation
 StackSizeController
 HumanNPC
+PathFinding
