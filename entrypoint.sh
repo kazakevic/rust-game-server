@@ -4,15 +4,20 @@ set -e
 RUST_SERVER_DIR="/rust"
 STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
 
-echo "==> Updating Rust Dedicated Server (AppID 258550)..."
-${STEAMCMD} \
-    +@sSteamCmdForcePlatformType linux \
-    +force_install_dir "${RUST_SERVER_DIR}" \
-    +login anonymous \
-    +app_update 258550 validate \
-    +quit
-
 cd "${RUST_SERVER_DIR}"
+
+# Update server if enabled or if server binary is missing (first run)
+if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
+    echo "==> Updating Rust Dedicated Server (AppID 258550)..."
+    ${STEAMCMD} \
+        +@sSteamCmdForcePlatformType linux \
+        +force_install_dir "${RUST_SERVER_DIR}" \
+        +login anonymous \
+        +app_update 258550 validate \
+        +quit
+else
+    echo "==> Skipping server update (RUST_UPDATE_ON_START=0)."
+fi
 
 if [ ! -f "./RustDedicated" ]; then
     echo "ERROR: RustDedicated binary not found in ${RUST_SERVER_DIR}"

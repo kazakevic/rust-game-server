@@ -23,6 +23,7 @@ services:
       - RUST_RCON_WEB=${RUST_RCON_WEB}
       - RUST_APP_PORT=${RUST_APP_PORT}
       - UMOD_ENABLED=${UMOD_ENABLED:-1}
+      - RUST_UPDATE_ON_START=${RUST_UPDATE_ON_START:-1}
     volumes:
       - rust-data:/rust
       - ./plugins:/plugins:ro
