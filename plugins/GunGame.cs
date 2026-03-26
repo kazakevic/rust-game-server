@@ -255,11 +255,14 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, CUI_XPBar);
 
             int nextXP = GetXPForNextLevel(data.Level);
+            int currentLevelXP = GetXPForCurrentLevel(data.Level);
             bool isMax = nextXP == int.MaxValue;
-            float progress = isMax ? 1f : Mathf.Clamp01((float)data.XP / nextXP);
+            int xpIntoLevel = data.XP - currentLevelXP;
+            int xpNeeded = nextXP - currentLevelXP;
+            float progress = isMax ? 1f : Mathf.Clamp01((float)xpIntoLevel / xpNeeded);
             int percent = Mathf.RoundToInt(progress * 100f);
 
-            string xpText = isMax ? "MAX LEVEL" : $"{data.XP} / {nextXP} XP";
+            string xpText = isMax ? "MAX LEVEL" : $"{xpIntoLevel} / {xpNeeded} XP";
             string barColor = isMax ? ColorBarFillMax : ColorBarFill;
             string levelColor = isMax ? ColorGold : ColorAccent;
 
@@ -776,6 +779,13 @@ namespace Oxide.Plugins
             return (int)(threshold * _config.DifficultyMultiplier);
         }
 
+        private int GetXPForCurrentLevel(int currentLevel)
+        {
+            if (currentLevel <= 1) return 0;
+            if (!_config.LevelXPThresholds.TryGetValue(currentLevel, out int threshold)) return 0;
+            return (int)(threshold * _config.DifficultyMultiplier);
+        }
+
         #endregion
 
         #region Hooks
@@ -1046,7 +1056,10 @@ namespace Oxide.Plugins
         {
             var data = GetOrCreatePlayer(target);
             int nextXP = GetXPForNextLevel(data.Level);
-            string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{data.XP}/{nextXP}";
+            int currentLevelXP = GetXPForCurrentLevel(data.Level);
+            int xpIntoLevel = data.XP - currentLevelXP;
+            int xpNeeded = nextXP - currentLevelXP;
+            string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{xpIntoLevel}/{xpNeeded}";
             Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots, data.AnimalKills, data.NPCKills);
         }
 
