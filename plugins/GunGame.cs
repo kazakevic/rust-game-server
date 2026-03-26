@@ -265,11 +265,11 @@ namespace Oxide.Plugins
 
             var elements = new CuiElementContainer();
 
-            // Main container — bottom-right corner (compact)
+            // Main container — bottom-left corner (compact)
             elements.Add(new CuiPanel
             {
                 Image = { Color = ColorBg, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
-                RectTransform = { AnchorMin = "0.83 0.025", AnchorMax = "0.995 0.052" },
+                RectTransform = { AnchorMin = "0.005 0.025", AnchorMax = "0.17 0.052" },
                 CursorEnabled = false
             }, "Hud", CUI_XPBar);
 
@@ -357,11 +357,11 @@ namespace Oxide.Plugins
 
             var elements = new CuiElementContainer();
 
-            // Popup container — above the XP bar in bottom-right
+            // Popup container — above the XP bar in bottom-left
             elements.Add(new CuiPanel
             {
                 Image = { Color = "0 0 0 0" },
-                RectTransform = { AnchorMin = "0.83 0.058", AnchorMax = "0.995 0.095" },
+                RectTransform = { AnchorMin = "0.005 0.058", AnchorMax = "0.17 0.095" },
                 CursorEnabled = false,
                 FadeOut = 0.8f
             }, "Hud", CUI_XPGainPopup);
