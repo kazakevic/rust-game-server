@@ -194,6 +194,56 @@ const app = new Elysia()
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 
+  .post("/api/world/set-night", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("env.time 0");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  .post("/api/weather/clear", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("weather.fog 0");
+      await rcon.command("weather.rain 0");
+      await rcon.command("weather.clouds 0");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  .post("/api/weather/rain", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("weather.rain 1");
+      await rcon.command("weather.clouds 0.5");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  .post("/api/weather/fog", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("weather.fog 1");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  .post("/api/weather/storm", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("weather.rain 1");
+      await rcon.command("weather.clouds 1");
+      await rcon.command("weather.fog 0.5");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
   .post("/api/plugins/redownload", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;

@@ -65,6 +65,24 @@ export function dashboardPage(data: DashboardData) {
         <form method="POST" action="/api/world/set-day">
           <button class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-4 py-2 rounded">Set Day</button>
         </form>
+        <form method="POST" action="/api/world/set-night">
+          <button class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded">Set Night</button>
+        </form>
+      </div>
+      <h3 class="text-lg font-semibold mt-6 mb-4">Weather Controls</h3>
+      <div class="flex flex-wrap gap-3">
+        <form method="POST" action="/api/weather/clear">
+          <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm px-4 py-2 rounded">Clear Weather</button>
+        </form>
+        <form method="POST" action="/api/weather/rain">
+          <button class="bg-blue-700 hover:bg-blue-800 text-white text-sm px-4 py-2 rounded">Rain</button>
+        </form>
+        <form method="POST" action="/api/weather/fog">
+          <button class="bg-gray-500 hover:bg-gray-600 text-white text-sm px-4 py-2 rounded">Fog</button>
+        </form>
+        <form method="POST" action="/api/weather/storm">
+          <button class="bg-gray-700 hover:bg-gray-800 text-white text-sm px-4 py-2 rounded">Storm</button>
+        </form>
       </div>
     </div>
     ` : ""}
