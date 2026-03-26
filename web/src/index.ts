@@ -83,17 +83,12 @@ const app = new Elysia()
     if (status.running) {
       try {
         const raw = await rcon.command("serverinfo");
-        const lines = raw.split("\n");
-        for (const line of lines) {
-          const [key, ...val] = line.split(":");
-          const k = key?.trim().toLowerCase() || "";
-          const v = val.join(":").trim();
-          if (k === "hostname") serverInfo.hostname = v;
-          if (k === "players") serverInfo.players = v.split(" ")[0] || v;
-          if (k === "maxplayers") serverInfo.maxPlayers = v;
-          if (k === "map") serverInfo.map = v;
-          if (k === "fps") serverInfo.fps = v;
-        }
+        const info = JSON.parse(raw);
+        serverInfo.hostname = String(info.Hostname ?? "");
+        serverInfo.players = String(info.Players ?? "0");
+        serverInfo.maxPlayers = String(info.MaxPlayers ?? "0");
+        serverInfo.map = String(info.Map ?? "");
+        serverInfo.fps = String(info.Framerate ?? info.Fps ?? "");
       } catch {}
     }
 
