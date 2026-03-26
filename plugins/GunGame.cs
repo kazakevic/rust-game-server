@@ -33,6 +33,7 @@ namespace Oxide.Plugins
         private const string CUI_XPGainPopup = "GunGame_XPGain";
         private const string CUI_LevelUpBanner = "GunGame_LevelUp";
         private const string CUI_ScreenFlash = "GunGame_Flash";
+        private const string CUI_StatsBoard = "GunGame_Stats";
 
         // Track active popup timers per player so we can cancel/extend
         private Dictionary<ulong, Timer> _xpPopupTimers = new Dictionary<ulong, Timer>();
@@ -573,6 +574,7 @@ namespace Oxide.Plugins
                 CuiHelper.DestroyUi(player, CUI_XPGainPopup);
                 CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
                 CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+                CuiHelper.DestroyUi(player, CUI_StatsBoard);
             }
 
             // Cancel all timers
@@ -981,6 +983,7 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, CUI_XPGainPopup);
             CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
             CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+            CuiHelper.DestroyUi(player, CUI_StatsBoard);
 
             // Clean up timers
             ulong id = player.userID;
@@ -1020,7 +1023,440 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region CUI - Stats Board
+
+        private void ShowStatsBoard(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, CUI_StatsBoard);
+
+            var data = GetOrCreatePlayer(player);
+            int nextXP = GetXPForNextLevel(data.Level);
+            int currentLevelXP = GetXPForCurrentLevel(data.Level);
+            bool isMax = nextXP == int.MaxValue;
+            int xpIntoLevel = data.XP - currentLevelXP;
+            int xpNeeded = isMax ? 1 : nextXP - currentLevelXP;
+            float progress = isMax ? 1f : Mathf.Clamp01((float)xpIntoLevel / xpNeeded);
+            int totalKills = data.Kills + data.AnimalKills + data.NPCKills;
+
+            var elements = new CuiElementContainer();
+
+            // Dim overlay (click to close)
+            elements.Add(new CuiButton
+            {
+                Button = { Command = "gungame.closestats", Color = "0 0 0 0.7" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" },
+                Text = { Text = "" }
+            }, "Overlay", CUI_StatsBoard);
+
+            // Main panel — centered card
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.08 0.08 0.08 0.97", Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
+                RectTransform = { AnchorMin = "0.2 0.15", AnchorMax = "0.8 0.85" },
+                CursorEnabled = true
+            }, CUI_StatsBoard, CUI_StatsBoard + "_Main");
+
+            // Top accent bar
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = ColorAccent },
+                RectTransform = { AnchorMin = "0 0.97", AnchorMax = "1 1" }
+            }, CUI_StatsBoard + "_Main");
+
+            // Title
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "GUN GAME STATS", FontSize = 20, Align = TextAnchor.MiddleLeft, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.03 0.89", AnchorMax = "0.6 0.96" }
+            }, CUI_StatsBoard + "_Main");
+
+            // Close button (X)
+            elements.Add(new CuiButton
+            {
+                Button = { Command = "gungame.closestats", Color = "0.9 0.25 0.2 0.85" },
+                RectTransform = { AnchorMin = "0.94 0.91", AnchorMax = "0.98 0.96" },
+                Text = { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" }
+            }, CUI_StatsBoard + "_Main");
+
+            // ─── LEFT COLUMN: Your Stats ───
+            string leftPanel = CUI_StatsBoard + "_Left";
+
+            // Section background
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.12 0.12 0.12 0.9" },
+                RectTransform = { AnchorMin = "0.02 0.38", AnchorMax = "0.49 0.88" }
+            }, CUI_StatsBoard + "_Main", leftPanel);
+
+            // Section header bg
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.15 0.15 0.15 1" },
+                RectTransform = { AnchorMin = "0 0.88", AnchorMax = "1 1" }
+            }, leftPanel, leftPanel + "_Hdr");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"  {data.DisplayName}", FontSize = 13, Align = TextAnchor.MiddleLeft, Color = ColorAccent, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
+            }, leftPanel + "_Hdr");
+
+            // Level display — big number
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = data.Level.ToString(), FontSize = 48, Align = TextAnchor.MiddleCenter, Color = isMax ? ColorGold : ColorAccent, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.02 0.55", AnchorMax = "0.25 0.87" }
+            }, leftPanel);
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = isMax ? "MAX LEVEL" : $"LEVEL", FontSize = 9, Align = TextAnchor.UpperCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.02 0.50", AnchorMax = "0.25 0.58" }
+            }, leftPanel);
+
+            // XP progress bar
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = ColorBarEmpty },
+                RectTransform = { AnchorMin = "0.28 0.68", AnchorMax = "0.95 0.75" }
+            }, leftPanel, leftPanel + "_BarBg");
+
+            string barFillMax = (0.28 + progress * (0.95 - 0.28)).ToString("F4");
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = isMax ? ColorBarFillMax : ColorBarFill },
+                RectTransform = { AnchorMin = "0.28 0.68", AnchorMax = $"{barFillMax} 0.75" }
+            }, leftPanel);
+
+            // Bar glow
+            if (progress > 0.02f)
+            {
+                elements.Add(new CuiPanel
+                {
+                    Image = { Color = "1.0 1.0 1.0 0.08" },
+                    RectTransform = { AnchorMin = "0.28 0.72", AnchorMax = $"{barFillMax} 0.75" }
+                }, leftPanel);
+            }
+
+            string xpLabel = isMax ? $"{data.XP} XP — MAX" : $"{xpIntoLevel} / {xpNeeded} XP";
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = xpLabel, FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.28 0.68", AnchorMax = "0.95 0.75" }
+            }, leftPanel);
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"Total XP: {data.XP}", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.28 0.59", AnchorMax = "0.95 0.67" }
+            }, leftPanel);
+
+            // Divider
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.25 0.25 0.25 0.6" },
+                RectTransform = { AnchorMin = "0.04 0.48", AnchorMax = "0.96 0.485" }
+            }, leftPanel);
+
+            // Stats grid — 2 columns
+            float statStartY = 0.36f;
+            float statRowH = 0.11f;
+            string[][] stats = new string[][]
+            {
+                new[] { "Player Kills", data.Kills.ToString(), "K/D Ratio", data.KDRatio.ToString() },
+                new[] { "Deaths", data.Deaths.ToString(), "Headshots", data.Headshots.ToString() },
+                new[] { "Animal Kills", data.AnimalKills.ToString(), "NPC Kills", data.NPCKills.ToString() },
+                new[] { "Total Kills", totalKills.ToString(), "", "" },
+            };
+
+            for (int r = 0; r < stats.Length; r++)
+            {
+                float yTop = statStartY + (stats.Length - 1 - r) * statRowH;
+                float yBot = yTop - statRowH + 0.015f;
+
+                // Left stat
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = stats[r][0], FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = $"0.05 {yBot:F3}", AnchorMax = $"0.38 {yTop:F3}" }
+                }, leftPanel);
+
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = stats[r][1], FontSize = 11, Align = TextAnchor.MiddleRight, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = $"0.30 {yBot:F3}", AnchorMax = $"0.48 {yTop:F3}" }
+                }, leftPanel);
+
+                if (!string.IsNullOrEmpty(stats[r][2]))
+                {
+                    // Right stat
+                    elements.Add(new CuiLabel
+                    {
+                        Text = { Text = stats[r][2], FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                        RectTransform = { AnchorMin = $"0.54 {yBot:F3}", AnchorMax = $"0.85 {yTop:F3}" }
+                    }, leftPanel);
+
+                    elements.Add(new CuiLabel
+                    {
+                        Text = { Text = stats[r][3], FontSize = 11, Align = TextAnchor.MiddleRight, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                        RectTransform = { AnchorMin = $"0.80 {yBot:F3}", AnchorMax = $"0.96 {yTop:F3}" }
+                    }, leftPanel);
+                }
+            }
+
+            // ─── RIGHT COLUMN: Leaderboard ───
+            string rightPanel = CUI_StatsBoard + "_Right";
+
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.12 0.12 0.12 0.9" },
+                RectTransform = { AnchorMin = "0.51 0.02", AnchorMax = "0.98 0.88" }
+            }, CUI_StatsBoard + "_Main", rightPanel);
+
+            // Section header
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.15 0.15 0.15 1" },
+                RectTransform = { AnchorMin = "0 0.95", AnchorMax = "1 1" }
+            }, rightPanel, rightPanel + "_Hdr");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "  TOP 10 LEADERBOARD", FontSize = 13, Align = TextAnchor.MiddleLeft, Color = ColorGold, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
+            }, rightPanel + "_Hdr");
+
+            // Column headers
+            float headerY = 0.91f;
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "#", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.02 {headerY - 0.035f}", AnchorMax = $"0.08 {headerY}" }
+            }, rightPanel);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "PLAYER", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.10 {headerY - 0.035f}", AnchorMax = $"0.45 {headerY}" }
+            }, rightPanel);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "LVL", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.46 {headerY - 0.035f}", AnchorMax = $"0.56 {headerY}" }
+            }, rightPanel);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "XP", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.57 {headerY - 0.035f}", AnchorMax = $"0.70 {headerY}" }
+            }, rightPanel);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "KILLS", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.71 {headerY - 0.035f}", AnchorMax = $"0.84 {headerY}" }
+            }, rightPanel);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "K/D", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = $"0.85 {headerY - 0.035f}", AnchorMax = $"0.98 {headerY}" }
+            }, rightPanel);
+
+            // Header divider
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.3 0.3 0.3 0.5" },
+                RectTransform = { AnchorMin = $"0.02 {headerY - 0.04f}", AnchorMax = $"0.98 {headerY - 0.037f}" }
+            }, rightPanel);
+
+            // Leaderboard rows
+            var top = _playerCache.Values
+                .OrderByDescending(p => p.Level)
+                .ThenByDescending(p => p.XP)
+                .ThenByDescending(p => p.Kills)
+                .Take(10)
+                .ToList();
+
+            float rowH = 0.08f;
+            float startY = headerY - 0.055f;
+
+            for (int i = 0; i < 10; i++)
+            {
+                float rowTop = startY - i * rowH;
+                float rowBot = rowTop - rowH + 0.01f;
+
+                if (i >= top.Count)
+                    break;
+
+                var p = top[i];
+                bool isMe = p.SteamId == player.userID;
+                string rankColor = i == 0 ? ColorGold : i == 1 ? "0.8 0.8 0.8 1.0" : i == 2 ? "0.8 0.5 0.2 1.0" : ColorWhiteSoft;
+                string nameColor = isMe ? ColorAccent : ColorWhite;
+                string nameText = p.DisplayName.Length > 18 ? p.DisplayName.Substring(0, 18) + ".." : p.DisplayName;
+
+                // Highlight row if it's the player
+                if (isMe)
+                {
+                    elements.Add(new CuiPanel
+                    {
+                        Image = { Color = "1.0 0.4 0.0 0.08" },
+                        RectTransform = { AnchorMin = $"0.01 {rowBot}", AnchorMax = $"0.99 {rowTop}" }
+                    }, rightPanel);
+                }
+
+                // Rank
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = $"#{i + 1}", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = rankColor, Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = $"0.02 {rowBot}", AnchorMax = $"0.08 {rowTop}" }
+                }, rightPanel);
+
+                // Name
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = nameText, FontSize = 10, Align = TextAnchor.MiddleLeft, Color = nameColor, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = $"0.10 {rowBot}", AnchorMax = $"0.45 {rowTop}" }
+                }, rightPanel);
+
+                // Level
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = p.Level.ToString(), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = $"0.46 {rowBot}", AnchorMax = $"0.56 {rowTop}" }
+                }, rightPanel);
+
+                // XP
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = p.XP.ToString(), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = $"0.57 {rowBot}", AnchorMax = $"0.70 {rowTop}" }
+                }, rightPanel);
+
+                // Kills
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = p.Kills.ToString(), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = $"0.71 {rowBot}", AnchorMax = $"0.84 {rowTop}" }
+                }, rightPanel);
+
+                // K/D
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = p.KDRatio.ToString(), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = $"0.85 {rowBot}", AnchorMax = $"0.98 {rowTop}" }
+                }, rightPanel);
+            }
+
+            if (top.Count == 0)
+            {
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = "No player data yet.", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                    RectTransform = { AnchorMin = "0.1 0.4", AnchorMax = "0.9 0.6" }
+                }, rightPanel);
+            }
+
+            // ─── BOTTOM LEFT: Player rank info ───
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.12 0.12 0.12 0.9" },
+                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.49 0.36" }
+            }, CUI_StatsBoard + "_Main", CUI_StatsBoard + "_Rank");
+
+            // Find player rank
+            var allSorted = _playerCache.Values
+                .OrderByDescending(p => p.Level)
+                .ThenByDescending(p => p.XP)
+                .ThenByDescending(p => p.Kills)
+                .ToList();
+            int myRank = allSorted.FindIndex(p => p.SteamId == player.userID) + 1;
+            string rankText = myRank > 0 ? $"#{myRank}" : "—";
+            string rankOfText = myRank > 0 ? $"of {allSorted.Count} players" : "";
+
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.15 0.15 0.15 1" },
+                RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 1" }
+            }, CUI_StatsBoard + "_Rank", CUI_StatsBoard + "_Rank_Hdr");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "  YOUR RANKING", FontSize = 13, Align = TextAnchor.MiddleLeft, Color = ColorAccent, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
+            }, CUI_StatsBoard + "_Rank_Hdr");
+
+            // Big rank number
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = rankText, FontSize = 42, Align = TextAnchor.MiddleCenter, Color = ColorAccent, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.05 0.15", AnchorMax = "0.4 0.82" }
+            }, CUI_StatsBoard + "_Rank");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = rankOfText, FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.05 0.02", AnchorMax = "0.4 0.18" }
+            }, CUI_StatsBoard + "_Rank");
+
+            // Rank context stats
+            string hsRate = data.Kills > 0 ? $"{Math.Round((double)data.Headshots / data.Kills * 100)}%" : "0%";
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Headshot Rate", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.45 0.58", AnchorMax = "0.78 0.72" }
+            }, CUI_StatsBoard + "_Rank");
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = hsRate, FontSize = 13, Align = TextAnchor.MiddleRight, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.78 0.58", AnchorMax = "0.95 0.72" }
+            }, CUI_StatsBoard + "_Rank");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Total Kills", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.45 0.38", AnchorMax = "0.78 0.52" }
+            }, CUI_StatsBoard + "_Rank");
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = totalKills.ToString(), FontSize = 13, Align = TextAnchor.MiddleRight, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.78 0.38", AnchorMax = "0.95 0.52" }
+            }, CUI_StatsBoard + "_Rank");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "K/D Ratio", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.45 0.18", AnchorMax = "0.78 0.32" }
+            }, CUI_StatsBoard + "_Rank");
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = data.KDRatio.ToString(), FontSize = 13, Align = TextAnchor.MiddleRight, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.78 0.18", AnchorMax = "0.95 0.32" }
+            }, CUI_StatsBoard + "_Rank");
+
+            // Hint at bottom
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Press ESC or click anywhere outside to close", FontSize = 9, Align = TextAnchor.LowerCenter, Color = "1 1 1 0.3", Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.2 0.005", AnchorMax = "0.8 0.03" }
+            }, CUI_StatsBoard + "_Main");
+
+            CuiHelper.AddUi(player, elements);
+        }
+
+        [ConsoleCommand("gungame.closestats")]
+        private void CmdCloseStats(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            CuiHelper.DestroyUi(player, CUI_StatsBoard);
+        }
+
+        #endregion
+
         #region Commands
+
+        [ChatCommand("stats")]
+        private void CmdStats(BasePlayer player, string command, string[] args)
+        {
+            ShowStatsBoard(player);
+        }
 
         [ChatCommand("gg")]
         private void CmdGunGame(BasePlayer player, string command, string[] args)
