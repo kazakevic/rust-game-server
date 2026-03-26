@@ -30,6 +30,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./cfg:/cfg
+      - rust-data:/rust-data
     depends_on:
       - rust-server
 

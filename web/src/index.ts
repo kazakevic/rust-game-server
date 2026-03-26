@@ -153,7 +153,9 @@ const app = new Elysia()
     if (query.saved === "1") success = "Config saved and plugin reloaded.";
 
     try {
-      const raw = await execInServer(["cat", "/rust/oxide/config/GunGame.json"]);
+      const configPath = "/rust-data/oxide/config/GunGame.json";
+      const file = Bun.file(configPath);
+      const raw = await file.text();
       config = JSON.parse(raw);
     } catch (e: any) {
       error = "Failed to load config: " + e.message;
@@ -169,9 +171,12 @@ const app = new Elysia()
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
+    const configPath = "/rust-data/oxide/config/GunGame.json";
+
     try {
       // Read current config
-      const raw = await execInServer(["cat", "/rust/oxide/config/GunGame.json"]);
+      const file = Bun.file(configPath);
+      const raw = await file.text();
       const config = JSON.parse(raw);
 
       const form = body as Record<string, string>;
@@ -202,7 +207,7 @@ const app = new Elysia()
 
       // Write config back
       const json = JSON.stringify(config, null, 2);
-      await execInServer(["bash", "-c", `cat > /rust/oxide/config/GunGame.json << 'CONFIGEOF'\n${json}\nCONFIGEOF`]);
+      await Bun.write(configPath, json);
 
       // Reload plugin to pick up changes
       try { await rcon.command("oxide.reload GunGame"); } catch {}
