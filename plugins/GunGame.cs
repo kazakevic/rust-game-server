@@ -37,13 +37,16 @@ namespace Oxide.Plugins
         private class PluginConfig
         {
             [JsonProperty("XPPerKill")]
-            public int XPPerKill { get; set; } = 100;
+            public int XPPerKill { get; set; } = 50;
 
             [JsonProperty("HeadshotBonusXP")]
-            public int HeadshotBonusXP { get; set; } = 50;
+            public int HeadshotBonusXP { get; set; } = 25;
 
             [JsonProperty("DistanceBonusXPPer50m")]
-            public int DistanceBonusXPPer50m { get; set; } = 25;
+            public int DistanceBonusXPPer50m { get; set; } = 15;
+
+            [JsonProperty("DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)")]
+            public float DifficultyMultiplier { get; set; } = 1.0f;
 
             [JsonProperty("KitPrefix")]
             public string KitPrefix { get; set; } = "level_";
@@ -54,15 +57,15 @@ namespace Oxide.Plugins
             [JsonProperty("LevelXPThresholds")]
             public Dictionary<int, int> LevelXPThresholds { get; set; } = new Dictionary<int, int>
             {
-                [2] = 200,
-                [3] = 500,
-                [4] = 900,
-                [5] = 1400,
-                [6] = 2000,
-                [7] = 2700,
-                [8] = 3500,
-                [9] = 4500,
-                [10] = 6000
+                [2] = 500,
+                [3] = 1200,
+                [4] = 2200,
+                [5] = 3500,
+                [6] = 5000,
+                [7] = 7000,
+                [8] = 9500,
+                [9] = 12500,
+                [10] = 16000
             };
 
             [JsonProperty("WipeOnNewSave")]
@@ -360,7 +363,8 @@ namespace Oxide.Plugins
         {
             int nextLevel = currentLevel + 1;
             if (nextLevel > _config.MaxLevel) return int.MaxValue;
-            return _config.LevelXPThresholds.TryGetValue(nextLevel, out int threshold) ? threshold : int.MaxValue;
+            if (!_config.LevelXPThresholds.TryGetValue(nextLevel, out int threshold)) return int.MaxValue;
+            return (int)(threshold * _config.DifficultyMultiplier);
         }
 
         #endregion
