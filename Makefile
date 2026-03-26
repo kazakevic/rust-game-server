@@ -1,4 +1,4 @@
-.PHONY: build up down restart logs rcon shell clean plugins reload update update-umod web-logs web-restart web-rebuild web-build
+.PHONY: build up down restart logs rcon shell clean plugins reload update update-umod web-logs web-restart web-rebuild web-build dev
 
 # ─── Full Stack ─────────────────────────────────────────
 build:
@@ -51,3 +51,7 @@ web-rebuild:
 
 web-build:
 	docker compose build web-admin
+
+# ─── Development ───────────────────────────────────────
+dev:
+	docker compose -f compose.yaml -f compose.dev.yaml up -d web-admin

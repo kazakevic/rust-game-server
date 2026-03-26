@@ -1,0 +1,7 @@
+services:
+  web-admin:
+    build: ./web
+    volumes:
+      - ./web/src:/app/src
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["bun", "run", "--watch", "src/index.ts"]
