@@ -53,30 +53,19 @@ namespace Oxide.Plugins
 
             var rotation = Quaternion.LookRotation(target.transform.position - position);
 
-            var result = HumanNPC.Call("CreateNPC", position, rotation, npcName, (ulong)0, true);
+            // CreateNPCHook returns BasePlayer directly (CreateNPC returns internal HumanPlayer type)
+            var result = HumanNPC.Call("CreateNPCHook", position, rotation, npcName, (ulong)0, true);
             if (result == null)
             {
-                arg.ReplyWith("ERROR: Failed to spawn NPC — CreateNPC returned null");
+                arg.ReplyWith("ERROR: CreateNPCHook returned null — check HumanNPC plugin logs");
                 return;
             }
 
-            // CreateNPC returns a HumanPlayer component; get the BasePlayer's userID
-            var npcPlayer = (result as MonoBehaviour)?.GetComponent<BasePlayer>();
+            var npcPlayer = result as BasePlayer;
             if (npcPlayer == null)
             {
-                // Fallback: try CreateNPCHook which returns BasePlayer directly
-                var hookResult = HumanNPC.Call("CreateNPCHook", position, rotation, npcName, (ulong)0, true);
-                if (hookResult == null)
-                {
-                    arg.ReplyWith("ERROR: Failed to spawn NPC");
-                    return;
-                }
-                npcPlayer = hookResult as BasePlayer;
-                if (npcPlayer == null)
-                {
-                    arg.ReplyWith("ERROR: Failed to get spawned NPC reference");
-                    return;
-                }
+                arg.ReplyWith($"ERROR: Unexpected return type: {result.GetType().Name}");
+                return;
             }
 
             arg.ReplyWith($"OK:{npcPlayer.userID}");
