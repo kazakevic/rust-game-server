@@ -62,6 +62,35 @@ export async function startServer() {
   await container.start();
 }
 
+export async function execInServer(cmd: string[]): Promise<string> {
+  const container = await getContainer();
+  const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({ hijack: true, stdin: false });
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("end", () => {
+      const raw = Buffer.concat(chunks);
+      // Strip Docker stream headers (8-byte prefix per frame)
+      const lines: string[] = [];
+      let offset = 0;
+      while (offset < raw.length) {
+        if (offset + 8 > raw.length) break;
+        const size = raw.readUInt32BE(offset + 4);
+        if (offset + 8 + size > raw.length) {
+          lines.push(raw.subarray(offset + 8).toString("utf-8"));
+          break;
+        }
+        lines.push(raw.subarray(offset + 8, offset + 8 + size).toString("utf-8"));
+        offset += 8 + size;
+      }
+      resolve(lines.join(""));
+    });
+    stream.on("error", reject);
+  });
+}
+
 export async function getServerLogs(tail: number = 200, since?: number): Promise<string> {
   try {
     const container = await getContainer();

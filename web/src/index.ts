@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
-import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer } from "./docker";
+import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer } from "./docker";
 import { RconClient } from "./rcon";
 import { loginPage } from "./views/login";
 import { dashboardPage } from "./views/dashboard";
@@ -161,6 +161,37 @@ const app = new Elysia()
     const blocked = authGuard(headers);
     if (blocked) return blocked;
     await startServer();
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  // API: Plugin controls
+  .post("/api/plugins/reload-all", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      const response = await rcon.command("oxide.reload *");
+      return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    } catch {
+      return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    }
+  })
+
+  .post("/api/plugins/reload-gungame", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("oxide.reload GunGame");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  .post("/api/plugins/redownload", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await execInServer(["bash", "/scripts/install-plugins.sh"]);
+      await rcon.command("oxide.reload *");
+    } catch {}
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 

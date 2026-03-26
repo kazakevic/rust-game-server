@@ -45,6 +45,24 @@ export function dashboardPage(data: DashboardData) {
       ${card("FPS", serverInfo.fps || "N/A")}
     </div>
 
+    ${status.running ? `
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h3 class="text-lg font-semibold mb-4">Plugin Controls</h3>
+      <div class="flex flex-wrap gap-3">
+        <form method="POST" action="/api/plugins/reload-all">
+          <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Reload All Plugins</button>
+        </form>
+        <form method="POST" action="/api/plugins/reload-gungame">
+          <button class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded">Reload GunGame</button>
+        </form>
+        <form method="POST" action="/api/plugins/redownload">
+          <button class="bg-orange-600 hover:bg-orange-700 text-white text-sm px-4 py-2 rounded"
+                  onclick="this.disabled=true;this.textContent='Downloading...';">Re-download Plugins</button>
+        </form>
+      </div>
+    </div>
+    ` : ""}
+
     <script>setTimeout(() => location.reload(), 15000);</script>
   `);
 }
