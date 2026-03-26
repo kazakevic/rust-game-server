@@ -65,7 +65,7 @@ export async function startServer() {
 export async function execInServer(cmd: string[]): Promise<string> {
   const container = await getContainer();
   const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
-  const stream = await exec.start({ hijack: true, stdin: false });
+  const stream = await exec.start({});
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
