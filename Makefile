@@ -44,13 +44,7 @@ web-logs:
 	docker compose logs -f web-admin
 
 web-restart:
-	docker compose restart web-admin
-
-web-rebuild:
 	docker compose up -d --build web-admin
-
-web-build:
-	docker compose build web-admin
 
 # ─── Development ───────────────────────────────────────
 dev:
