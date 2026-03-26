@@ -957,6 +957,8 @@ namespace Oxide.Plugins
 
             if (!player.inventory.GiveItem(item))
                 item.DropAndTossUpwards(player.transform.position);
+
+            player.ChatMessage($"{_config.ChatPrefix} You received <color=#4CAF50>{amount}x {itemDef.displayName.english}</color>!");
         }
 
         private void OnPlayerRespawned(BasePlayer player)
