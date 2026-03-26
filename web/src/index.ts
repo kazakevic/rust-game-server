@@ -196,6 +196,7 @@ const app = new Elysia()
       }
 
       if ("WipeOnNewSave" in form) config.WipeOnNewSave = form.WipeOnNewSave === "true";
+      config.TestMode = "TestMode" in form && form.TestMode === "true";
 
       // Rebuild thresholds based on MaxLevel
       const maxLevel = config.MaxLevel ?? 5;

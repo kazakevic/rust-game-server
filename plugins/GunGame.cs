@@ -107,6 +107,9 @@ namespace Oxide.Plugins
             [JsonProperty("TopListSize")]
             public int TopListSize { get; set; } = 10;
 
+            [JsonProperty("TestMode")]
+            public bool TestMode { get; set; } = false;
+
             [JsonProperty("KillRewardItemShortname")]
             public string KillRewardItemShortname { get; set; } = "blood";
 
@@ -847,6 +850,9 @@ namespace Oxide.Plugins
             if (leveledUp)
                 ShowLevelUp(killer, killerData);
 
+            if (_config.TestMode)
+                GiveKillReward(killer);
+
             SavePlayer(killerData);
         }
 
@@ -874,6 +880,9 @@ namespace Oxide.Plugins
             ShowXPGain(killer, killerData, xpGained, "AnimalKillXP");
             if (leveledUp)
                 ShowLevelUp(killer, killerData);
+
+            if (_config.TestMode)
+                GiveKillReward(killer);
 
             SavePlayer(killerData);
         }

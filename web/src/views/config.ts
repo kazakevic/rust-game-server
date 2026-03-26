@@ -60,8 +60,9 @@ export function configPage(data: ConfigData) {
           ${input({ name: "ChatPrefix", label: "Chat message prefix", type: "text", value: String(config.ChatPrefix ?? "") })}
           ${input({ name: "TopListSize", label: "Leaderboard entries", type: "number", value: String(config.TopListSize ?? "") })}
         </div>
-        <div class="mt-4">
+        <div class="mt-4 space-y-3">
           ${checkbox({ name: "WipeOnNewSave", label: "Wipe player data on new map save", checked: !!config.WipeOnNewSave })}
+          ${checkbox({ name: "TestMode", label: "Test mode (NPC & animal kills give item rewards)", checked: !!config.TestMode })}
         </div>
       `, { description: "General plugin configuration" })}
 
