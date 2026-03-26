@@ -60,6 +60,12 @@ export function dashboardPage(data: DashboardData) {
                   onclick="this.disabled=true;this.textContent='Downloading...';">Re-download Plugins</button>
         </form>
       </div>
+      <h3 class="text-lg font-semibold mt-6 mb-4">World Controls</h3>
+      <div class="flex flex-wrap gap-3">
+        <form method="POST" action="/api/world/set-day">
+          <button class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-4 py-2 rounded">Set Day</button>
+        </form>
+      </div>
     </div>
     ` : ""}
 

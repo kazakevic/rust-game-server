@@ -265,11 +265,11 @@ namespace Oxide.Plugins
 
             var elements = new CuiElementContainer();
 
-            // Main container — bottom-left corner
+            // Main container — bottom-right corner (compact)
             elements.Add(new CuiPanel
             {
                 Image = { Color = ColorBg, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
-                RectTransform = { AnchorMin = "0.005 0.025", AnchorMax = "0.19 0.058" },
+                RectTransform = { AnchorMin = "0.83 0.025", AnchorMax = "0.995 0.052" },
                 CursorEnabled = false
             }, "Hud", CUI_XPBar);
 
@@ -282,7 +282,7 @@ namespace Oxide.Plugins
 
             elements.Add(new CuiLabel
             {
-                Text = { Text = $"LV {data.Level}", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
+                Text = { Text = $"LV {data.Level}", FontSize = 8, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
                 RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
             }, CUI_XPBar + "_LvlBg");
 
@@ -314,14 +314,14 @@ namespace Oxide.Plugins
             // XP text (centered on bar)
             elements.Add(new CuiLabel
             {
-                Text = { Text = xpText, FontSize = 8, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-regular.ttf" },
+                Text = { Text = xpText, FontSize = 7, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-regular.ttf" },
                 RectTransform = { AnchorMin = "0.135 0", AnchorMax = "0.86 1" }
             }, CUI_XPBar);
 
             // Percentage text (right side)
             elements.Add(new CuiLabel
             {
-                Text = { Text = isMax ? "★" : $"{percent}%", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = isMax ? ColorGold : ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                Text = { Text = isMax ? "★" : $"{percent}%", FontSize = 8, Align = TextAnchor.MiddleCenter, Color = isMax ? ColorGold : ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
                 RectTransform = { AnchorMin = "0.86 0", AnchorMax = "1 1" }
             }, CUI_XPBar);
 
@@ -357,11 +357,11 @@ namespace Oxide.Plugins
 
             var elements = new CuiElementContainer();
 
-            // Popup container — above the XP bar in bottom-left
+            // Popup container — above the XP bar in bottom-right
             elements.Add(new CuiPanel
             {
                 Image = { Color = "0 0 0 0" },
-                RectTransform = { AnchorMin = "0.005 0.065", AnchorMax = "0.19 0.11" },
+                RectTransform = { AnchorMin = "0.83 0.058", AnchorMax = "0.995 0.095" },
                 CursorEnabled = false,
                 FadeOut = 0.8f
             }, "Hud", CUI_XPGainPopup);

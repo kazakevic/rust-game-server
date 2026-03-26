@@ -185,6 +185,15 @@ const app = new Elysia()
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 
+  .post("/api/world/set-day", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("env.time 12");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
   .post("/api/plugins/redownload", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
