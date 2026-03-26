@@ -3,6 +3,7 @@ using Oxide.Core;
 using Oxide.Core.Database;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
+using Oxide.Game.Rust.Cui;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,6 +27,34 @@ namespace Oxide.Plugins
         private Dictionary<ulong, PlayerData> _playerCache = new Dictionary<ulong, PlayerData>();
 
         private const string PermAdmin = "gungame.admin";
+
+        // CUI panel names
+        private const string CUI_XPBar = "GunGame_XPBar";
+        private const string CUI_XPGainPopup = "GunGame_XPGain";
+        private const string CUI_LevelUpBanner = "GunGame_LevelUp";
+        private const string CUI_ScreenFlash = "GunGame_Flash";
+
+        // Track active popup timers per player so we can cancel/extend
+        private Dictionary<ulong, Timer> _xpPopupTimers = new Dictionary<ulong, Timer>();
+        private Dictionary<ulong, Timer> _levelUpTimers = new Dictionary<ulong, Timer>();
+        private Dictionary<ulong, Timer> _flashTimers = new Dictionary<ulong, Timer>();
+
+        // Track cumulative XP gain within rapid kills
+        private Dictionary<ulong, int> _pendingXPDisplay = new Dictionary<ulong, int>();
+
+        // Colors
+        private const string ColorBg = "0.1 0.1 0.1 0.85";
+        private const string ColorBgDark = "0.05 0.05 0.05 0.9";
+        private const string ColorBarEmpty = "0.2 0.2 0.2 0.8";
+        private const string ColorBarFill = "1.0 0.4 0.0 0.9";        // orange
+        private const string ColorBarFillMax = "1.0 0.84 0.0 0.9";    // gold for max level
+        private const string ColorAccent = "1.0 0.4 0.0 1.0";         // orange accent
+        private const string ColorGold = "1.0 0.84 0.0 1.0";          // gold
+        private const string ColorWhite = "1.0 1.0 1.0 1.0";
+        private const string ColorWhiteSoft = "1.0 1.0 1.0 0.7";
+        private const string ColorGreen = "0.0 1.0 0.3 1.0";
+        private const string ColorLevelUp = "1.0 0.84 0.0 1.0";
+        private const string ColorFlash = "1.0 0.84 0.0 0.15";
 
         #endregion
 
@@ -187,11 +216,11 @@ namespace Oxide.Plugins
 
         private void ShowXPGain(BasePlayer player, PlayerData data, int xpGained, string sourceKey)
         {
-            int nextXP = GetXPForNextLevel(data.Level);
-            string bar = BuildProgressBar(data.XP, nextXP);
+            // Update persistent XP bar
+            CreateXPBar(player, data);
 
-            Message(player, sourceKey, xpGained, data.XP, data.Level);
-            player.ChatMessage($"{_config.ChatPrefix} Lv.{data.Level} {bar}");
+            // Show floating XP popup (accumulates for rapid kills)
+            ShowXPGainPopup(player, xpGained);
 
             // Play a subtle sound on XP gain
             Effect.server.Run("assets/bundled/prefabs/fx/notice/item.select.fx.prefab", player.transform.position);
@@ -199,20 +228,284 @@ namespace Oxide.Plugins
 
         private void ShowLevelUp(BasePlayer player, PlayerData data)
         {
-            if (data.Level >= _config.MaxLevel)
-            {
-                Message(player, "MaxLevel");
-            }
-            else
-            {
-                Message(player, "LevelUp", data.Level);
-            }
+            // Update the XP bar first
+            CreateXPBar(player, data);
 
-            // Play level up sound & screen flash
+            // Show level up banner
+            ShowLevelUpBanner(player, data);
+
+            // Screen flash effect
+            ShowScreenFlash(player);
+
+            // Play level up sound & gesture
             Effect.server.Run("assets/bundled/prefabs/fx/gestures/drink_raise.prefab", player.transform.position);
+            Effect.server.Run("assets/bundled/prefabs/fx/invite_notice.prefab", player.transform.position);
             player.SignalBroadcast(BaseEntity.Signal.Gesture, "victory");
 
             EquipKit(player, data.Level);
+        }
+
+        #endregion
+
+        #region CUI - Persistent XP Bar
+
+        private void CreateXPBar(BasePlayer player, PlayerData data)
+        {
+            // Destroy existing bar
+            CuiHelper.DestroyUi(player, CUI_XPBar);
+
+            int nextXP = GetXPForNextLevel(data.Level);
+            bool isMax = nextXP == int.MaxValue;
+            float progress = isMax ? 1f : Mathf.Clamp01((float)data.XP / nextXP);
+            int percent = Mathf.RoundToInt(progress * 100f);
+
+            string xpText = isMax ? "MAX LEVEL" : $"{data.XP} / {nextXP} XP";
+            string barColor = isMax ? ColorBarFillMax : ColorBarFill;
+            string levelColor = isMax ? ColorGold : ColorAccent;
+
+            var elements = new CuiElementContainer();
+
+            // Main container — bottom center of screen
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = ColorBg, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
+                RectTransform = { AnchorMin = "0.3 0.025", AnchorMax = "0.7 0.07" },
+                CursorEnabled = false
+            }, "Hud", CUI_XPBar);
+
+            // Level badge (left side)
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = levelColor },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.12 1" }
+            }, CUI_XPBar, CUI_XPBar + "_LvlBg");
+
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"LV {data.Level}", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
+            }, CUI_XPBar + "_LvlBg");
+
+            // Bar background (middle area)
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = ColorBarEmpty },
+                RectTransform = { AnchorMin = "0.135 0.2", AnchorMax = "0.86 0.8" }
+            }, CUI_XPBar, CUI_XPBar + "_BarBg");
+
+            // Bar fill
+            string fillMax = (0.135 + progress * (0.86 - 0.135)).ToString("F4");
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = barColor },
+                RectTransform = { AnchorMin = "0.135 0.2", AnchorMax = $"{fillMax} 0.8" }
+            }, CUI_XPBar, CUI_XPBar + "_BarFill");
+
+            // Bar glow overlay (subtle shine on the fill)
+            if (progress > 0.02f)
+            {
+                elements.Add(new CuiPanel
+                {
+                    Image = { Color = "1.0 1.0 1.0 0.08" },
+                    RectTransform = { AnchorMin = "0.135 0.55", AnchorMax = $"{fillMax} 0.8" }
+                }, CUI_XPBar);
+            }
+
+            // XP text (centered on bar)
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = xpText, FontSize = 11, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-regular.ttf" },
+                RectTransform = { AnchorMin = "0.135 0", AnchorMax = "0.86 1" }
+            }, CUI_XPBar);
+
+            // Percentage text (right side)
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = isMax ? "★" : $"{percent}%", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = isMax ? ColorGold : ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
+                RectTransform = { AnchorMin = "0.86 0", AnchorMax = "1 1" }
+            }, CUI_XPBar);
+
+            CuiHelper.AddUi(player, elements);
+        }
+
+        private void DestroyXPBar(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, CUI_XPBar);
+        }
+
+        #endregion
+
+        #region CUI - XP Gain Popup
+
+        private void ShowXPGainPopup(BasePlayer player, int xpGained)
+        {
+            ulong id = player.userID;
+
+            // Accumulate XP for rapid kills
+            if (!_pendingXPDisplay.ContainsKey(id))
+                _pendingXPDisplay[id] = 0;
+            _pendingXPDisplay[id] += xpGained;
+
+            int totalXP = _pendingXPDisplay[id];
+
+            // Cancel existing popup timer
+            if (_xpPopupTimers.TryGetValue(id, out Timer existing))
+                existing?.Destroy();
+
+            // Destroy old popup
+            CuiHelper.DestroyUi(player, CUI_XPGainPopup);
+
+            var elements = new CuiElementContainer();
+
+            // Popup container — above the XP bar, slightly right of center
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0 0 0 0" },
+                RectTransform = { AnchorMin = "0.42 0.08", AnchorMax = "0.58 0.14" },
+                CursorEnabled = false,
+                FadeOut = 0.8f
+            }, "Hud", CUI_XPGainPopup);
+
+            // Glow background
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "1.0 0.4 0.0 0.15" },
+                RectTransform = { AnchorMin = "0.1 0", AnchorMax = "0.9 1" },
+                FadeOut = 0.8f
+            }, CUI_XPGainPopup);
+
+            // XP gain text
+            string text = totalXP == xpGained ? $"+{xpGained} XP" : $"+{xpGained} XP  (+{totalXP} combo)";
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = text, FontSize = 18, Align = TextAnchor.MiddleCenter, Color = ColorGreen, Font = "robotocondensed-bold.ttf", FadeIn = 0.1f },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" },
+                FadeOut = 0.8f
+            }, CUI_XPGainPopup);
+
+            CuiHelper.AddUi(player, elements);
+
+            // Auto-remove after 2 seconds and reset accumulator
+            _xpPopupTimers[id] = timer.Once(2f, () =>
+            {
+                if (player != null && player.IsConnected)
+                    CuiHelper.DestroyUi(player, CUI_XPGainPopup);
+                _pendingXPDisplay.Remove(id);
+                _xpPopupTimers.Remove(id);
+            });
+        }
+
+        #endregion
+
+        #region CUI - Level Up Banner
+
+        private void ShowLevelUpBanner(BasePlayer player, PlayerData data)
+        {
+            ulong id = player.userID;
+
+            if (_levelUpTimers.TryGetValue(id, out Timer existing))
+                existing?.Destroy();
+
+            CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
+
+            var elements = new CuiElementContainer();
+
+            bool isMax = data.Level >= _config.MaxLevel;
+            string title = isMax ? "★ MAX LEVEL REACHED ★" : $"LEVEL UP!";
+            string subtitle = isMax ? "You have mastered Gun Game!" : $"You are now Level {data.Level}";
+
+            // Full-width banner near top of screen
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.05 0.05 0.05 0.92", Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
+                RectTransform = { AnchorMin = "0.25 0.78", AnchorMax = "0.75 0.9" },
+                CursorEnabled = false,
+                FadeOut = 1.5f
+            }, "Hud", CUI_LevelUpBanner);
+
+            // Top accent line
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = isMax ? ColorGold : ColorAccent },
+                RectTransform = { AnchorMin = "0 0.92", AnchorMax = "1 1" },
+                FadeOut = 1.5f
+            }, CUI_LevelUpBanner);
+
+            // Bottom accent line
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = isMax ? ColorGold : ColorAccent },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.08" },
+                FadeOut = 1.5f
+            }, CUI_LevelUpBanner);
+
+            // Level number (big, left side)
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = data.Level.ToString(), FontSize = 42, Align = TextAnchor.MiddleCenter, Color = isMax ? ColorGold : ColorAccent, Font = "robotocondensed-bold.ttf", FadeIn = 0.15f },
+                RectTransform = { AnchorMin = "0 0.05", AnchorMax = "0.2 0.92" },
+                FadeOut = 1.5f
+            }, CUI_LevelUpBanner);
+
+            // Title text
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = title, FontSize = 22, Align = TextAnchor.MiddleLeft, Color = isMax ? ColorGold : ColorLevelUp, Font = "robotocondensed-bold.ttf", FadeIn = 0.15f },
+                RectTransform = { AnchorMin = "0.22 0.45", AnchorMax = "0.95 0.92" },
+                FadeOut = 1.5f
+            }, CUI_LevelUpBanner);
+
+            // Subtitle text
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = subtitle, FontSize = 14, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf", FadeIn = 0.3f },
+                RectTransform = { AnchorMin = "0.22 0.08", AnchorMax = "0.95 0.5" },
+                FadeOut = 1.5f
+            }, CUI_LevelUpBanner);
+
+            CuiHelper.AddUi(player, elements);
+
+            // Auto-remove after 4 seconds
+            _levelUpTimers[id] = timer.Once(4f, () =>
+            {
+                if (player != null && player.IsConnected)
+                    CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
+                _levelUpTimers.Remove(id);
+            });
+        }
+
+        #endregion
+
+        #region CUI - Screen Flash
+
+        private void ShowScreenFlash(BasePlayer player)
+        {
+            ulong id = player.userID;
+
+            if (_flashTimers.TryGetValue(id, out Timer existing))
+                existing?.Destroy();
+
+            CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+
+            var elements = new CuiElementContainer();
+
+            // Full screen overlay flash
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = ColorFlash },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" },
+                CursorEnabled = false,
+                FadeOut = 1.0f
+            }, "Overlay", CUI_ScreenFlash);
+
+            CuiHelper.AddUi(player, elements);
+
+            _flashTimers[id] = timer.Once(1.2f, () =>
+            {
+                if (player != null && player.IsConnected)
+                    CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+                _flashTimers.Remove(id);
+            });
         }
 
         #endregion
@@ -230,10 +523,52 @@ namespace Oxide.Plugins
                 PrintWarning("Kits plugin not found! Gun Game requires the Kits plugin to equip weapons.");
 
             OpenDatabase();
+
+            // Show XP bar for all currently online players (handles plugin reload)
+            timer.Once(1f, () =>
+            {
+                foreach (var player in BasePlayer.activePlayerList)
+                {
+                    var data = GetOrCreatePlayer(player);
+                    CreateXPBar(player, data);
+                }
+            });
+        }
+
+        private void OnPlayerConnected(BasePlayer player)
+        {
+            if (player == null) return;
+
+            // Slight delay to let player fully load in
+            timer.Once(2f, () =>
+            {
+                if (player != null && player.IsConnected)
+                {
+                    var data = GetOrCreatePlayer(player);
+                    CreateXPBar(player, data);
+                }
+            });
         }
 
         private void Unload()
         {
+            // Destroy all UI for all online players
+            foreach (var player in BasePlayer.activePlayerList)
+            {
+                CuiHelper.DestroyUi(player, CUI_XPBar);
+                CuiHelper.DestroyUi(player, CUI_XPGainPopup);
+                CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
+                CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+            }
+
+            // Cancel all timers
+            foreach (var t in _xpPopupTimers.Values) t?.Destroy();
+            foreach (var t in _levelUpTimers.Values) t?.Destroy();
+            foreach (var t in _flashTimers.Values) t?.Destroy();
+            _xpPopupTimers.Clear();
+            _levelUpTimers.Clear();
+            _flashTimers.Clear();
+
             SaveAllPlayers();
             CloseDatabase();
         }
@@ -556,9 +891,7 @@ namespace Oxide.Plugins
                 if (player != null && player.IsConnected)
                 {
                     EquipKit(player, data.Level);
-                    int nextXP = GetXPForNextLevel(data.Level);
-                    string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{data.XP}/{nextXP}";
-                    Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots, data.AnimalKills, data.NPCKills);
+                    CreateXPBar(player, data);
                 }
             });
         }
@@ -575,6 +908,20 @@ namespace Oxide.Plugins
         private void OnPlayerDisconnected(BasePlayer player, string reason)
         {
             if (player == null) return;
+
+            // Clean up UI
+            DestroyXPBar(player);
+            CuiHelper.DestroyUi(player, CUI_XPGainPopup);
+            CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
+            CuiHelper.DestroyUi(player, CUI_ScreenFlash);
+
+            // Clean up timers
+            ulong id = player.userID;
+            if (_xpPopupTimers.TryGetValue(id, out Timer t1)) { t1?.Destroy(); _xpPopupTimers.Remove(id); }
+            if (_levelUpTimers.TryGetValue(id, out Timer t2)) { t2?.Destroy(); _levelUpTimers.Remove(id); }
+            if (_flashTimers.TryGetValue(id, out Timer t3)) { t3?.Destroy(); _flashTimers.Remove(id); }
+            _pendingXPDisplay.Remove(id);
+
             if (_playerCache.TryGetValue(player.userID, out PlayerData data))
                 SavePlayer(data);
         }
@@ -655,11 +1002,12 @@ namespace Oxide.Plugins
                     {
                         WipeDatabase();
 
-                        // Re-equip all online players with level 1 kit
+                        // Re-equip all online players with level 1 kit and refresh UI
                         foreach (var bp in BasePlayer.activePlayerList)
                         {
                             var data = GetOrCreatePlayer(bp);
                             EquipKit(bp, data.Level);
+                            CreateXPBar(bp, data);
                         }
 
                         Message(player, "WipeComplete");
@@ -764,9 +1112,14 @@ namespace Oxide.Plugins
             targetData.Dirty = true;
             SavePlayer(targetData);
 
-            // Equip kit if online
+            // Equip kit and update UI if online
             if (targetPlayer != null && targetPlayer.IsConnected)
+            {
                 EquipKit(targetPlayer, level);
+                CreateXPBar(targetPlayer, targetData);
+                ShowLevelUpBanner(targetPlayer, targetData);
+                ShowScreenFlash(targetPlayer);
+            }
 
             Message(player, "SetLevel", targetData.DisplayName, level);
         }
