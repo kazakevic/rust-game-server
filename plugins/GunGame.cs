@@ -602,9 +602,19 @@ namespace Oxide.Plugins
 
             _sqlite.ExecuteNonQuery(Sql.Builder.Append(createTable), _db);
 
-            // Migrate: add columns if they don't exist (ALTER TABLE IF NOT EXISTS not supported, so ignore errors)
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN animal_kills INTEGER NOT NULL DEFAULT 0;"), _db);
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN npc_kills INTEGER NOT NULL DEFAULT 0;"), _db);
+            // Migrate: add columns if they don't exist
+            _sqlite.Query(Sql.Builder.Append("PRAGMA table_info(player_stats);"), _db, list =>
+            {
+                if (list == null) return;
+                var columns = new HashSet<string>();
+                foreach (var row in list)
+                    columns.Add(row["name"].ToString());
+
+                if (!columns.Contains("animal_kills"))
+                    _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN animal_kills INTEGER NOT NULL DEFAULT 0;"), _db);
+                if (!columns.Contains("npc_kills"))
+                    _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN npc_kills INTEGER NOT NULL DEFAULT 0;"), _db);
+            });
 
             LoadAllPlayers();
         }
