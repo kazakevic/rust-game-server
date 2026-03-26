@@ -1,45 +1,59 @@
-export function layout(title: string, content: string) {
+export function layout(title: string, content: string, opts?: { activePage?: string }) {
+  const active = opts?.activePage || "";
+
+  function navLink(href: string, label: string, page: string) {
+    const isActive = active === page;
+    const cls = isActive
+      ? "text-zinc-900 font-medium"
+      : "text-zinc-500 hover:text-zinc-900";
+    return `<a href="${href}" class="text-sm transition-colors ${cls}">${label}</a>`;
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} - Rust Server Admin</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            rust: { 50:'#fef3f2',100:'#fee4e2',200:'#fecdc9',400:'#f97066',500:'#cd412b',600:'#b5200b',700:'#9a1a0a',800:'#7f1a0e',900:'#6c1b13' }
-          }
-        }
-      }
+  <title>${title} - Rust GG Admin</title>
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --color-primary: #18181b;
+      --color-accent: #cd412b;
     }
-  </script>
-  <style>
-    body { background: #111; }
-    .console-output { font-family: 'Courier New', monospace; font-size: 13px; }
-    .console-output::-webkit-scrollbar { width: 8px; }
-    .console-output::-webkit-scrollbar-track { background: #1a1a1a; }
-    .console-output::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    @keyframes ping {
+      75%, 100% { transform: scale(2); opacity: 0; }
+    }
+    .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+    .console-output {
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    .console-output::-webkit-scrollbar { width: 6px; }
+    .console-output::-webkit-scrollbar-track { background: #fafafa; border-radius: 3px; }
+    .console-output::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+    .console-output::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
   </style>
 </head>
-<body class="text-gray-200 min-h-screen">
-  <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-4">
-      <h1 class="text-lg font-bold text-rust-400">Rust Server Admin</h1>
-      <a href="/dashboard" class="text-sm text-gray-400 hover:text-white">Dashboard</a>
-      <a href="/rcon" class="text-sm text-gray-400 hover:text-white">RCON Console</a>
-      <a href="/logs" class="text-sm text-gray-400 hover:text-white">Logs</a>
-      <a href="/config" class="text-sm text-gray-400 hover:text-white">Config</a>
-      <a href="/configs" class="text-sm text-gray-400 hover:text-white">Server Configs</a>
+<body class="bg-zinc-50 text-zinc-900 min-h-screen antialiased">
+  <nav class="sticky top-0 z-40 border-b border-zinc-200 bg-white/80 backdrop-blur-lg">
+    <div class="max-w-6xl mx-auto flex items-center justify-between h-14 px-6">
+      <div class="flex items-center gap-8">
+        <a href="/dashboard" class="text-base font-bold tracking-tight text-zinc-900">Rust<span class="text-accent">GG</span></a>
+        <div class="flex items-center gap-5">
+          ${navLink("/dashboard", "Dashboard", "dashboard")}
+          ${navLink("/rcon", "Console", "rcon")}
+          ${navLink("/logs", "Logs", "logs")}
+          ${navLink("/config", "GunGame", "config")}
+          ${navLink("/configs", "Server Configs", "configs")}
+        </div>
+      </div>
+      <form method="POST" action="/logout">
+        <button class="text-sm text-zinc-400 hover:text-red-500 transition-colors cursor-pointer">Logout</button>
+      </form>
     </div>
-    <form method="POST" action="/logout">
-      <button class="text-sm text-gray-500 hover:text-red-400">Logout</button>
-    </form>
   </nav>
-  <main class="max-w-6xl mx-auto p-6">
+  <main class="max-w-6xl mx-auto px-6 py-8">
     ${content}
   </main>
 </body>

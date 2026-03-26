@@ -1,33 +1,35 @@
+import { alert, button, input } from "./components";
+
 export function loginPage(error?: string) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login - Rust Server Admin</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>body { background: #111; }</style>
+  <title>Login - Rust GG Admin</title>
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --color-accent: #cd412b;
+    }
+  </style>
 </head>
-<body class="text-gray-200 min-h-screen flex items-center justify-center">
-  <div class="bg-gray-900 border border-gray-800 rounded-lg p-8 w-full max-w-sm">
-    <h1 class="text-xl font-bold text-center mb-6">Rust Server Admin</h1>
-    ${error ? `<div class="bg-red-900/50 border border-red-700 text-red-300 text-sm rounded p-3 mb-4">${error}</div>` : ""}
-    <form method="POST" action="/login" class="space-y-4">
-      <div>
-        <label class="block text-sm text-gray-400 mb-1">Username</label>
-        <input name="username" type="text" required autocomplete="username"
-          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
-      </div>
-      <div>
-        <label class="block text-sm text-gray-400 mb-1">Password</label>
-        <input name="password" type="password" required autocomplete="current-password"
-          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
-      </div>
-      <button type="submit"
-        class="w-full bg-rust-600 hover:bg-rust-700 text-white font-medium rounded px-4 py-2 text-sm">
-        Sign In
-      </button>
-    </form>
+<body class="bg-zinc-50 text-zinc-900 min-h-screen flex items-center justify-center antialiased">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-bold tracking-tight">Rust<span class="text-accent">GG</span></h1>
+      <p class="text-sm text-zinc-500 mt-1">Server Administration</p>
+    </div>
+    <div class="rounded-xl border border-zinc-200 bg-white shadow-sm p-6">
+      ${error ? `<div class="mb-4">${alert(error, "error")}</div>` : ""}
+      <form method="POST" action="/login" class="space-y-4">
+        ${input({ name: "username", label: "Username", type: "text", required: true, autocomplete: "username", placeholder: "Enter username" })}
+        ${input({ name: "password", label: "Password", type: "password", required: true, autocomplete: "current-password", placeholder: "Enter password" })}
+        <div class="pt-1">
+          ${button("Sign in", { variant: "primary", size: "lg", type: "submit", class: "w-full" })}
+        </div>
+      </form>
+    </div>
   </div>
 </body>
 </html>`;

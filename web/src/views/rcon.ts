@@ -1,61 +1,62 @@
 import { layout } from "./layout";
+import { pageHeader, button } from "./components";
 
 export function rconPage() {
   return layout("RCON Console", `
-    <h2 class="text-2xl font-bold mb-6">RCON Console</h2>
+    ${pageHeader("Console", { description: "Execute RCON commands on the server" })}
 
-    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-      <div id="output" class="console-output bg-black p-4 h-96 overflow-y-auto text-green-400 whitespace-pre-wrap"></div>
-      <form id="rcon-form" class="flex border-t border-gray-800">
-        <span class="text-gray-500 px-3 py-3 text-sm">&gt;</span>
+    <div class="rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden mb-6">
+      <div id="output" class="console-output bg-zinc-950 text-zinc-300 p-4 h-96 overflow-y-auto whitespace-pre-wrap"></div>
+      <form id="rcon-form" class="flex items-center border-t border-zinc-200 bg-white">
+        <span class="text-zinc-400 pl-4 text-sm font-mono">&gt;</span>
         <input id="cmd" type="text" autocomplete="off" placeholder="Enter RCON command..."
-          class="flex-1 bg-transparent text-sm text-gray-200 py-3 focus:outline-none" />
-        <button type="submit" class="bg-rust-600 hover:bg-rust-700 text-white text-sm px-6">Send</button>
+          class="flex-1 bg-transparent text-sm text-zinc-900 px-3 py-3 focus:outline-none placeholder:text-zinc-400" />
+        ${button("Send", { variant: "primary", size: "sm", type: "submit", class: "mr-2" })}
       </form>
     </div>
 
-    <div class="mt-4 space-y-3">
+    <div class="space-y-4">
       ${cmdGroup("Server Info", [
-        ["status", "Server status overview"],
-        ["serverinfo", "Detailed server info"],
-        ["playerlist", "List online players"],
-        ["server.fps", "Current server FPS"],
-        ["global.perf 6", "Performance report"],
+        ["status", "Status"],
+        ["serverinfo", "Server Info"],
+        ["playerlist", "Player List"],
+        ["server.fps", "FPS"],
+        ["global.perf 6", "Performance"],
       ])}
       ${cmdGroup("Server Control", [
-        ["server.save", "Save world"],
-        ["server.writecfg", "Save config to disk"],
-        ["restart 300 \"Server restarting in 5 minutes\"", "Restart in 5 min"],
-        ["quit", "Stop server"],
+        ["server.save", "Save World"],
+        ["server.writecfg", "Write Config"],
+        ['restart 300 "Server restarting in 5 minutes"', "Restart (5m)"],
+        ["quit", "Stop Server"],
       ])}
       ${cmdGroup("World & Time", [
-        ["env.time", "Current time"],
-        ["env.time 12", "Set to noon"],
-        ["weather.fog 0", "Clear fog"],
-        ["weather.rain 0", "Clear rain"],
-        ["weather.clouds 0", "Clear clouds"],
+        ["env.time", "Current Time"],
+        ["env.time 12", "Set Noon"],
+        ["weather.fog 0", "Clear Fog"],
+        ["weather.rain 0", "Clear Rain"],
+        ["weather.clouds 0", "Clear Clouds"],
       ])}
       ${cmdGroup("Players", [
-        ["users", "List connected users"],
-        ["sleepingusers", "List sleeping players"],
-        ["banlistex", "Show ban list"],
-        ["say \"Hello everyone!\"", "Broadcast message"],
+        ["users", "Connected"],
+        ["sleepingusers", "Sleeping"],
+        ["banlistex", "Ban List"],
+        ['say "Hello everyone!"', "Broadcast"],
       ])}
       ${cmdGroup("Oxide / uMod", [
-        ["oxide.reload *", "Reload all plugins"],
-        ["oxide.version", "Oxide version"],
-        ["plugins", "List loaded plugins"],
-        ["oxide.unload *", "Unload all plugins"],
-        ["oxide.load *", "Load all plugins"],
-        ["oxide.grant group default vanish.allow", "Grant plugin perm"],
+        ["oxide.reload *", "Reload All"],
+        ["oxide.version", "Version"],
+        ["plugins", "List Plugins"],
+        ["oxide.unload *", "Unload All"],
+        ["oxide.load *", "Load All"],
+        ["oxide.grant group default vanish.allow", "Grant Perm"],
       ])}
       ${cmdGroup("Admin & Debug", [
-        ["find .", "List all commands"],
-        ["gc.collect", "Force garbage collection"],
-        ["pool.status", "Memory pool status"],
-        ["entity.stats", "Entity statistics"],
-        ["server.seed", "Show map seed"],
-        ["server.worldsize", "Show map size"],
+        ["find .", "All Commands"],
+        ["gc.collect", "Force GC"],
+        ["pool.status", "Pool Status"],
+        ["entity.stats", "Entity Stats"],
+        ["server.seed", "Map Seed"],
+        ["server.worldsize", "Map Size"],
       ])}
     </div>
 
@@ -69,10 +70,10 @@ export function rconPage() {
       function appendOutput(text, isCmd) {
         const line = document.createElement('div');
         if (isCmd) {
-          line.className = 'text-yellow-400 mt-2';
+          line.className = 'text-amber-400 mt-2 font-medium';
           line.textContent = '> ' + text;
         } else {
-          line.className = 'text-green-400';
+          line.className = 'text-zinc-400';
           line.textContent = text;
         }
         output.appendChild(line);
@@ -123,20 +124,20 @@ export function rconPage() {
         btn.addEventListener('click', () => sendCommand(btn.dataset.cmd));
       });
     </script>
-  `);
+  `, { activePage: "rcon" });
 }
 
 function cmdGroup(title: string, commands: [string, string][]) {
   const buttons = commands
     .map(([cmd, label]) =>
-      `<button data-cmd="${cmd}" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs px-3 py-1.5 rounded" title="${cmd}">${label}</button>`
+      `<button data-cmd="${cmd}" class="inline-flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer" title="${cmd}">${label}</button>`
     )
     .join("\n        ");
   return `
-      <div>
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1.5">${title}</div>
-        <div class="flex flex-wrap gap-2">
-          ${buttons}
-        </div>
-      </div>`;
+    <div>
+      <div class="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">${title}</div>
+      <div class="flex flex-wrap gap-1.5">
+        ${buttons}
+      </div>
+    </div>`;
 }

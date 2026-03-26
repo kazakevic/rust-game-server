@@ -1,4 +1,5 @@
 import { layout } from "./layout";
+import { pageHeader, alert, section, input, checkbox, button, escapeHtml } from "./components";
 
 interface ConfigData {
   config: Record<string, any> | null;
@@ -10,106 +11,80 @@ export function configPage(data: ConfigData) {
   const { config, error, success } = data;
 
   const banner = error
-    ? `<div class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded mb-6">${error}</div>`
+    ? alert(error, "error")
     : success
-    ? `<div class="bg-green-900/50 border border-green-700 text-green-300 px-4 py-3 rounded mb-6">${success}</div>`
+    ? alert(success, "success")
     : "";
 
   if (!config) {
     return layout("Config", `
-      <h2 class="text-2xl font-bold mb-6">GunGame Config</h2>
-      ${banner || '<div class="bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-4 py-3 rounded">Could not load config. Is the server running?</div>'}
-    `);
+      ${pageHeader("GunGame Config", { description: "Configure the GunGame plugin settings" })}
+      ${banner || alert("Could not load config. Is the server running?", "warning")}
+    `, { activePage: "config" });
   }
 
   return layout("Config", `
-    <h2 class="text-2xl font-bold mb-6">GunGame Config</h2>
-    ${banner}
+    ${pageHeader("GunGame Config", { description: "Configure the GunGame plugin settings" })}
+    ${banner ? `<div class="mb-6">${banner}</div>` : ""}
+
     <form method="POST" action="/api/config/save" class="space-y-6">
 
-      ${section("XP Settings", [
-        field("XPPerKill", config.XPPerKill, "number", "Base XP per player kill"),
-        field("HeadshotBonusXP", config.HeadshotBonusXP, "number", "Bonus XP for headshot"),
-        field("DistanceBonusXPPer50m", config.DistanceBonusXPPer50m, "number", "Bonus XP per 50m distance"),
-        field("XPPerAnimalKill", config.XPPerAnimalKill, "number", "XP per animal kill"),
-        field("XPPerNPCKill", config.XPPerNPCKill, "number", "XP per NPC kill"),
-      ])}
+      ${section("XP Settings", `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${input({ name: "XPPerKill", label: "Base XP per player kill", type: "number", value: String(config.XPPerKill ?? "") })}
+          ${input({ name: "HeadshotBonusXP", label: "Bonus XP for headshot", type: "number", value: String(config.HeadshotBonusXP ?? "") })}
+          ${input({ name: "DistanceBonusXPPer50m", label: "Bonus XP per 50m distance", type: "number", value: String(config.DistanceBonusXPPer50m ?? "") })}
+          ${input({ name: "XPPerAnimalKill", label: "XP per animal kill", type: "number", value: String(config.XPPerAnimalKill ?? "") })}
+          ${input({ name: "XPPerNPCKill", label: "XP per NPC kill", type: "number", value: String(config.XPPerNPCKill ?? ""), class: "md:col-span-1" })}
+        </div>
+      `, { description: "Points earned for different kill types" })}
 
-      ${section("Kill Reward", [
-        field("KillRewardItemShortname", config.KillRewardItemShortname, "text", "Item shortname (empty to disable)"),
-        field("KillRewardMinAmount", config.KillRewardMinAmount, "number", "Minimum amount"),
-        field("KillRewardMaxAmount", config.KillRewardMaxAmount, "number", "Maximum amount"),
-      ])}
+      ${section("Kill Reward", `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          ${input({ name: "KillRewardItemShortname", label: "Item shortname", type: "text", value: String(config.KillRewardItemShortname ?? ""), hint: "Leave empty to disable" })}
+          ${input({ name: "KillRewardMinAmount", label: "Minimum amount", type: "number", value: String(config.KillRewardMinAmount ?? "") })}
+          ${input({ name: "KillRewardMaxAmount", label: "Maximum amount", type: "number", value: String(config.KillRewardMaxAmount ?? "") })}
+        </div>
+      `, { description: "Item reward given on player kill" })}
 
-      ${section("Progression", [
-        field("MaxLevel", config.MaxLevel, "number", "Maximum level"),
-        field("DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)", config["DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)"], "number", "XP threshold multiplier (0.5=easy, 2.0=hard)", "0.1"),
-        field("KitPrefix", config.KitPrefix, "text", "Kit name prefix"),
-      ])}
+      ${section("Progression", `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          ${input({ name: "MaxLevel", label: "Maximum level", type: "number", value: String(config.MaxLevel ?? "") })}
+          ${input({ name: "DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)", label: "Difficulty multiplier", type: "number", value: String(config["DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)"] ?? ""), step: "0.1", hint: "0.5 = easy, 1.0 = normal, 2.0 = hard" })}
+          ${input({ name: "KitPrefix", label: "Kit name prefix", type: "text", value: String(config.KitPrefix ?? "") })}
+        </div>
+      `, { description: "Level progression and difficulty settings" })}
 
-      ${section("General", [
-        field("ChatPrefix", config.ChatPrefix, "text", "Chat message prefix"),
-        field("TopListSize", config.TopListSize, "number", "Leaderboard entries"),
-        fieldCheckbox("WipeOnNewSave", config.WipeOnNewSave, "Wipe data on new map save"),
-      ])}
+      ${section("General", `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${input({ name: "ChatPrefix", label: "Chat message prefix", type: "text", value: String(config.ChatPrefix ?? "") })}
+          ${input({ name: "TopListSize", label: "Leaderboard entries", type: "number", value: String(config.TopListSize ?? "") })}
+        </div>
+        <div class="mt-4">
+          ${checkbox({ name: "WipeOnNewSave", label: "Wipe player data on new map save", checked: !!config.WipeOnNewSave })}
+        </div>
+      `, { description: "General plugin configuration" })}
 
-      ${section("Level XP Thresholds", [
-        thresholdsFields(config.LevelXPThresholds || {}),
-      ])}
+      ${section("Level XP Thresholds", `
+        ${thresholdsGrid(config.LevelXPThresholds || {})}
+      `, { description: "XP required to reach each level" })}
 
-      <div class="flex gap-3">
-        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-medium">
-          Save & Reload Plugin
-        </button>
-        <a href="/config" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded font-medium">Reset Form</a>
+      <div class="flex items-center gap-3">
+        ${button("Save & Reload Plugin", { variant: "primary", size: "lg", type: "submit" })}
+        <a href="/config" class="inline-flex items-center justify-center rounded-lg h-10 px-6 text-sm font-medium border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors">Reset Form</a>
       </div>
     </form>
-  `);
+  `, { activePage: "config" });
 }
 
-function section(title: string, fields: string[]) {
-  return `
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-      <h3 class="text-lg font-semibold mb-4">${title}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${fields.join("")}
-      </div>
-    </div>`;
-}
-
-function field(name: string, value: any, type: string, label: string, step?: string) {
-  const stepAttr = step ? ` step="${step}"` : type === "number" ? ' step="1"' : "";
-  return `
-    <div>
-      <label class="block text-sm text-gray-400 mb-1">${label}</label>
-      <input type="${type}" name="${name}" value="${escapeHtml(String(value ?? ""))}"
-             class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:outline-none focus:border-rust-400"
-             ${stepAttr}>
-    </div>`;
-}
-
-function fieldCheckbox(name: string, checked: boolean, label: string) {
-  return `
-    <div class="flex items-center gap-2 col-span-full">
-      <input type="hidden" name="${name}" value="false">
-      <input type="checkbox" name="${name}" value="true" ${checked ? "checked" : ""}
-             class="w-4 h-4 rounded bg-gray-800 border-gray-700">
-      <label class="text-sm text-gray-400">${label}</label>
-    </div>`;
-}
-
-function thresholdsFields(thresholds: Record<string, number>) {
+function thresholdsGrid(thresholds: Record<string, number>): string {
   const sorted = Object.entries(thresholds).sort(([a], [b]) => parseInt(a) - parseInt(b));
   const fields = sorted.map(([level, xp]) => `
-    <div class="flex items-center gap-2">
-      <span class="text-sm text-gray-500 w-20">Level ${level}</span>
+    <div>
+      <label class="block text-xs font-medium text-zinc-500 mb-1">Level ${level}</label>
       <input type="number" name="threshold_${level}" value="${xp}" step="100"
-             class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:outline-none focus:border-rust-400">
+             class="flex h-9 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-transparent" />
     </div>
   `).join("");
-  return `<div class="col-span-full grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">${fields}</div>`;
-}
-
-function escapeHtml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">${fields}</div>`;
 }

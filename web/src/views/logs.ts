@@ -1,30 +1,34 @@
 import { layout } from "./layout";
+import { pageHeader, button, select, escapeHtml } from "./components";
 
 export function logsPage(logs: string) {
-  const escapedLogs = logs
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  const escapedLogs = escapeHtml(logs);
+
+  const tailSelect = select({
+    id: "tail-lines",
+    items: [
+      { value: "100", label: "Last 100 lines" },
+      { value: "200", label: "Last 200 lines", selected: true },
+      { value: "500", label: "Last 500 lines" },
+      { value: "1000", label: "Last 1000 lines" },
+    ],
+  });
 
   return layout("Server Logs", `
-    <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-bold">Server Logs</h2>
-      <div class="flex items-center gap-3">
-        <select id="tail-lines" class="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded px-3 py-1.5">
-          <option value="100">Last 100 lines</option>
-          <option value="200" selected>Last 200 lines</option>
-          <option value="500">Last 500 lines</option>
-          <option value="1000">Last 1000 lines</option>
-        </select>
-        <button id="refresh-btn" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-4 py-1.5 rounded">Refresh</button>
-        <label class="flex items-center gap-2 text-sm text-gray-400">
-          <input type="checkbox" id="auto-scroll" checked class="accent-rust-500" /> Auto-scroll
+    ${pageHeader("Server Logs", {
+      description: "Real-time server output",
+      actions: `
+        ${tailSelect}
+        ${button("Refresh", { variant: "outline", size: "sm", attrs: 'id="refresh-btn"' })}
+        <label class="flex items-center gap-2 text-sm text-zinc-500 ml-2 cursor-pointer select-none">
+          <input type="checkbox" id="auto-scroll" checked class="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-950 cursor-pointer" />
+          Auto-scroll
         </label>
-      </div>
-    </div>
+      `,
+    })}
 
-    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-      <div id="log-output" class="console-output bg-black p-4 h-[70vh] overflow-y-auto text-gray-300 whitespace-pre-wrap">${escapedLogs}</div>
+    <div class="rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
+      <div id="log-output" class="console-output bg-zinc-950 text-zinc-400 p-4 h-[70vh] overflow-y-auto whitespace-pre-wrap">${escapedLogs}</div>
     </div>
 
     <script>
@@ -56,9 +60,7 @@ export function logsPage(logs: string) {
 
       refreshBtn.addEventListener('click', fetchLogs);
       tailSelect.addEventListener('change', fetchLogs);
-
-      // Auto-refresh every 5 seconds
       setInterval(fetchLogs, 5000);
     </script>
-  `);
+  `, { activePage: "logs" });
 }

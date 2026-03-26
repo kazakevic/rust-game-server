@@ -1,4 +1,5 @@
 import { layout } from "./layout";
+import { statsCard, statusDot, button, pageHeader, section } from "./components";
 
 interface DashboardData {
   status: { running: boolean; status: string; startedAt: string };
@@ -9,94 +10,88 @@ interface DashboardData {
 export function dashboardPage(data: DashboardData) {
   const { status, stats, serverInfo } = data;
   const uptime = status.startedAt ? timeSince(status.startedAt) : "N/A";
-  const statusColor = status.running ? "text-green-400" : "text-red-400";
-  const statusDot = status.running ? "bg-green-400" : "bg-red-400";
+
+  const serverControls = status.running
+    ? `<form method="POST" action="/api/server/restart" onsubmit="return confirm('Are you sure you want to restart the server?')">
+        ${button("Restart", { variant: "warning", size: "sm", type: "submit" })}
+      </form>
+      <form method="POST" action="/api/server/stop" onsubmit="return confirm('Are you sure you want to stop the server?')">
+        ${button("Stop", { variant: "destructive", size: "sm", type: "submit" })}
+      </form>`
+    : `<form method="POST" action="/api/server/start">
+        ${button("Start Server", { variant: "success", size: "sm", type: "submit" })}
+      </form>`;
+
+  const statusValue = `<span class="flex items-center gap-2.5">
+    ${statusDot(status.running)}
+    <span class="${status.running ? "text-emerald-700" : "text-red-600"} font-medium">${status.status}</span>
+  </span>`;
 
   return layout("Dashboard", `
-    <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-bold">Server Dashboard</h2>
-      <div class="flex gap-2">
-        ${status.running ? `
-          <form method="POST" action="/api/server/restart" onsubmit="return confirm('Are you sure you want to restart the server?')">
-            <button class="bg-yellow-600 hover:bg-yellow-700 text-white text-sm px-4 py-2 rounded">Restart</button>
-          </form>
-          <form method="POST" action="/api/server/stop" onsubmit="return confirm('Are you sure you want to stop the server?')">
-            <button class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded">Stop</button>
-          </form>
-        ` : `
-          <form method="POST" action="/api/server/start">
-            <button class="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded">Start</button>
-          </form>
-        `}
-      </div>
+    ${pageHeader("Dashboard", { actions: `<div class="flex items-center gap-2">${serverControls}</div>` })}
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      ${statsCard("Status", "", { icon: statusValue })}
+      ${statsCard("Uptime", uptime)}
+      ${statsCard("CPU", `${stats.cpu}%`)}
+      ${statsCard("Memory", `${stats.memoryUsed} MB`, { detail: `${stats.memoryPercent}% of ${stats.memoryLimit} MB` })}
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      ${card("Status", `<span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full ${statusDot}"></span><span class="${statusColor} font-medium">${status.status}</span></span>`)}
-      ${card("Uptime", uptime)}
-      ${card("CPU", `${stats.cpu}%`)}
-      ${card("Memory", `${stats.memoryUsed} MB / ${stats.memoryLimit} MB (${stats.memoryPercent}%)`)}
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      ${card("Hostname", serverInfo.hostname || "N/A")}
-      ${card("Players", `${serverInfo.players || "0"} / ${serverInfo.maxPlayers || "0"}`)}
-      ${card("Map", serverInfo.map || "N/A")}
-      ${card("FPS", serverInfo.fps || "N/A")}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      ${statsCard("Hostname", serverInfo.hostname || "N/A")}
+      ${statsCard("Players", `${serverInfo.players || "0"} / ${serverInfo.maxPlayers || "0"}`)}
+      ${statsCard("Map", serverInfo.map || "N/A")}
+      ${statsCard("Server FPS", serverInfo.fps || "N/A")}
     </div>
 
     ${status.running ? `
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-      <h3 class="text-lg font-semibold mb-4">Plugin Controls</h3>
-      <div class="flex flex-wrap gap-3">
-        <form method="POST" action="/api/plugins/reload-all">
-          <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Reload All Plugins</button>
-        </form>
-        <form method="POST" action="/api/plugins/reload-gungame">
-          <button class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded">Reload GunGame</button>
-        </form>
-        <form method="POST" action="/api/plugins/redownload">
-          <button class="bg-orange-600 hover:bg-orange-700 text-white text-sm px-4 py-2 rounded"
-                  onclick="this.disabled=true;this.textContent='Downloading...';">Re-download Plugins</button>
-        </form>
-      </div>
-      <h3 class="text-lg font-semibold mt-6 mb-4">World Controls</h3>
-      <div class="flex flex-wrap gap-3">
-        <form method="POST" action="/api/world/set-day">
-          <button class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-4 py-2 rounded">Set Day</button>
-        </form>
-        <form method="POST" action="/api/world/set-night">
-          <button class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded">Set Night</button>
-        </form>
-      </div>
-      <h3 class="text-lg font-semibold mt-6 mb-4">Weather Controls</h3>
-      <div class="flex flex-wrap gap-3">
-        <form method="POST" action="/api/weather/clear">
-          <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm px-4 py-2 rounded">Clear Weather</button>
-        </form>
-        <form method="POST" action="/api/weather/rain">
-          <button class="bg-blue-700 hover:bg-blue-800 text-white text-sm px-4 py-2 rounded">Rain</button>
-        </form>
-        <form method="POST" action="/api/weather/fog">
-          <button class="bg-gray-500 hover:bg-gray-600 text-white text-sm px-4 py-2 rounded">Fog</button>
-        </form>
-        <form method="POST" action="/api/weather/storm">
-          <button class="bg-gray-700 hover:bg-gray-800 text-white text-sm px-4 py-2 rounded">Storm</button>
-        </form>
-      </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      ${section("Plugin Controls", `
+        <div class="flex flex-wrap gap-2">
+          <form method="POST" action="/api/plugins/reload-all">
+            ${button("Reload All Plugins", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/plugins/reload-gungame">
+            ${button("Reload GunGame", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/plugins/redownload">
+            ${button("Re-download Plugins", { variant: "outline", size: "sm", type: "submit", attrs: `onclick="this.disabled=true;this.textContent='Downloading...'"` })}
+          </form>
+        </div>
+      `, { description: "Manage Oxide/uMod plugins" })}
+
+      ${section("World Controls", `
+        <div class="flex flex-wrap gap-2">
+          <form method="POST" action="/api/world/set-day">
+            ${button("Set Day", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/world/set-night">
+            ${button("Set Night", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+        </div>
+      `, { description: "Control in-game time" })}
+
+      ${section("Weather Controls", `
+        <div class="flex flex-wrap gap-2">
+          <form method="POST" action="/api/weather/clear">
+            ${button("Clear", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/weather/rain">
+            ${button("Rain", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/weather/fog">
+            ${button("Fog", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+          <form method="POST" action="/api/weather/storm">
+            ${button("Storm", { variant: "outline", size: "sm", type: "submit" })}
+          </form>
+        </div>
+      `, { description: "Control weather effects" })}
     </div>
     ` : ""}
 
     <script>setTimeout(() => location.reload(), 15000);</script>
-  `);
-}
-
-function card(title: string, value: string) {
-  return `
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">${title}</div>
-      <div class="text-lg">${value}</div>
-    </div>`;
+  `, { activePage: "dashboard" });
 }
 
 function timeSince(dateStr: string): string {
