@@ -69,10 +69,17 @@ export function configPage(data: ConfigData) {
         <div id="thresholds-container">
           ${thresholdsGrid(config.LevelXPThresholds || {}, config.MaxLevel ?? 5)}
         </div>
+        <div class="mt-3">
+          <button type="button" id="autofill-thresholds"
+                  class="inline-flex items-center justify-center rounded-lg h-8 px-4 text-xs font-medium border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors">
+            Auto-fill empty levels
+          </button>
+        </div>
         <script>
           (function() {
             const maxInput = document.querySelector('input[name="MaxLevel"]');
             const container = document.getElementById('thresholds-container');
+            const autofillBtn = document.getElementById('autofill-thresholds');
             if (!maxInput || !container) return;
 
             function getCurrentValues() {
@@ -82,6 +89,21 @@ export function configPage(data: ConfigData) {
                 if (m) vals[m[1]] = inp.value;
               });
               return vals;
+            }
+
+            function generateXP(level) {
+              // Curve: base 300, grows progressively — e.g. lvl2=300, lvl3=800, lvl4=1500, lvl5=2500...
+              return Math.round((150 * (level - 1) * level) / 2) * 2;
+            }
+
+            function autofill() {
+              const inputs = container.querySelectorAll('input[type="number"]');
+              inputs.forEach(inp => {
+                const m = inp.name.match(/^threshold_(\\d+)$/);
+                if (m && !inp.value) {
+                  inp.value = generateXP(parseInt(m[1]));
+                }
+              });
             }
 
             function rebuild() {
@@ -100,6 +122,7 @@ export function configPage(data: ConfigData) {
             }
 
             maxInput.addEventListener('input', rebuild);
+            if (autofillBtn) autofillBtn.addEventListener('click', autofill);
           })();
         </script>
       `, { description: "XP required to reach each level — adapts to Maximum Level" })}
