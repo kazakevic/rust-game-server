@@ -8,6 +8,7 @@ import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
 import { configPage } from "./views/config";
 import { configsListPage, configsEditPage } from "./views/configs";
+import { npcsPage } from "./views/npcs";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 
@@ -106,6 +107,13 @@ const app = new Elysia()
     const blocked = authGuard(headers);
     if (blocked) return blocked;
     return new Response(rconPage(), { headers: { "Content-Type": "text/html" } });
+  })
+
+  // NPC Manager page
+  .get("/npcs", ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    return new Response(npcsPage(), { headers: { "Content-Type": "text/html" } });
   })
 
   // API: RCON command
