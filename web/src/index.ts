@@ -187,7 +187,7 @@ const app = new Elysia()
         if (key in form) config[key] = parseInt(form[key]) || 0;
       }
 
-      const floatKey = "DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)";
+      const floatKey = "DifficultyMultiplier (scales XP earned: 0.5=hard, 1.0=normal, 2.0=easy)";
       if (floatKey in form) config[floatKey] = parseFloat(form[floatKey]) || 1.0;
 
       const strFields = ["KitPrefix", "ChatPrefix", "KillRewardItemShortname"];
@@ -197,13 +197,18 @@ const app = new Elysia()
 
       if ("WipeOnNewSave" in form) config.WipeOnNewSave = form.WipeOnNewSave === "true";
 
-      // Apply thresholds
-      for (const [key, val] of Object.entries(form)) {
-        if (key.startsWith("threshold_")) {
-          const level = key.replace("threshold_", "");
-          config.LevelXPThresholds[level] = parseInt(val as string) || 0;
+      // Rebuild thresholds based on MaxLevel
+      const maxLevel = config.MaxLevel ?? 5;
+      const newThresholds: Record<string, number> = {};
+      for (let level = 2; level <= maxLevel; level++) {
+        const formVal = form[`threshold_${level}`];
+        if (formVal !== undefined) {
+          newThresholds[String(level)] = parseInt(formVal as string) || 0;
+        } else if (config.LevelXPThresholds?.[String(level)] !== undefined) {
+          newThresholds[String(level)] = config.LevelXPThresholds[String(level)];
         }
       }
+      config.LevelXPThresholds = newThresholds;
 
       // Write config back
       const json = JSON.stringify(config, null, 2);

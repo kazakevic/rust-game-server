@@ -79,14 +79,14 @@ namespace Oxide.Plugins
             [JsonProperty("XPPerNPCKill")]
             public int XPPerNPCKill { get; set; } = 20;
 
-            [JsonProperty("DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)")]
+            [JsonProperty("DifficultyMultiplier (scales XP earned: 0.5=hard, 1.0=normal, 2.0=easy)")]
             public float DifficultyMultiplier { get; set; } = 1.0f;
 
             [JsonProperty("KitPrefix")]
             public string KitPrefix { get; set; } = "level_";
 
             [JsonProperty("MaxLevel")]
-            public int MaxLevel { get; set; } = 10;
+            public int MaxLevel { get; set; } = 5;
 
             [JsonProperty("LevelXPThresholds")]
             public Dictionary<int, int> LevelXPThresholds { get; set; } = new Dictionary<int, int>
@@ -94,12 +94,7 @@ namespace Oxide.Plugins
                 [2] = 500,
                 [3] = 1200,
                 [4] = 2200,
-                [5] = 3500,
-                [6] = 5000,
-                [7] = 7000,
-                [8] = 9500,
-                [9] = 12500,
-                [10] = 16000
+                [5] = 3500
             };
 
             [JsonProperty("WipeOnNewSave")]
@@ -771,7 +766,7 @@ namespace Oxide.Plugins
                     xpGained += distanceBonusUnits * _config.DistanceBonusXPPer50m;
             }
 
-            return xpGained;
+            return (int)(xpGained * _config.DifficultyMultiplier);
         }
 
         private bool CheckLevelUp(PlayerData data)
@@ -790,14 +785,14 @@ namespace Oxide.Plugins
             int nextLevel = currentLevel + 1;
             if (nextLevel > _config.MaxLevel) return int.MaxValue;
             if (!_config.LevelXPThresholds.TryGetValue(nextLevel, out int threshold)) return int.MaxValue;
-            return (int)(threshold * _config.DifficultyMultiplier);
+            return threshold;
         }
 
         private int GetXPForCurrentLevel(int currentLevel)
         {
             if (currentLevel <= 1) return 0;
             if (!_config.LevelXPThresholds.TryGetValue(currentLevel, out int threshold)) return 0;
-            return (int)(threshold * _config.DifficultyMultiplier);
+            return threshold;
         }
 
         #endregion
@@ -823,6 +818,7 @@ namespace Oxide.Plugins
             int xpGained = _config.XPPerNPCKill;
             if (info.isHeadshot)
                 xpGained += _config.HeadshotBonusXP;
+            xpGained = (int)(xpGained * _config.DifficultyMultiplier);
 
             killerData.XP += xpGained;
             killerData.Dirty = true;
@@ -851,7 +847,7 @@ namespace Oxide.Plugins
             var killerData = GetOrCreatePlayer(killer);
             killerData.AnimalKills++;
 
-            int xpGained = _config.XPPerAnimalKill;
+            int xpGained = (int)(_config.XPPerAnimalKill * _config.DifficultyMultiplier);
             killerData.XP += xpGained;
             killerData.Dirty = true;
 

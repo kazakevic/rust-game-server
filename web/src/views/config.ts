@@ -50,7 +50,7 @@ export function configPage(data: ConfigData) {
       ${section("Progression", `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           ${input({ name: "MaxLevel", label: "Maximum level", type: "number", value: String(config.MaxLevel ?? "") })}
-          ${input({ name: "DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)", label: "Difficulty multiplier", type: "number", value: String(config["DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)"] ?? ""), step: "0.1", hint: "0.5 = easy, 1.0 = normal, 2.0 = hard" })}
+          ${input({ name: "DifficultyMultiplier (scales XP earned: 0.5=hard, 1.0=normal, 2.0=easy)", label: "Difficulty multiplier", type: "number", value: String(config["DifficultyMultiplier (scales XP earned: 0.5=hard, 1.0=normal, 2.0=easy)"] ?? ""), step: "0.1", hint: "0.5 = hard, 1.0 = normal, 2.0 = easy" })}
           ${input({ name: "KitPrefix", label: "Kit name prefix", type: "text", value: String(config.KitPrefix ?? "") })}
         </div>
       `, { description: "Level progression and difficulty settings" })}
@@ -66,8 +66,8 @@ export function configPage(data: ConfigData) {
       `, { description: "General plugin configuration" })}
 
       ${section("Level XP Thresholds", `
-        ${thresholdsGrid(config.LevelXPThresholds || {})}
-      `, { description: "XP required to reach each level" })}
+        ${thresholdsGrid(config.LevelXPThresholds || {}, config.MaxLevel ?? 5)}
+      `, { description: "XP required to reach each level — automatically adapts to Maximum Level setting" })}
 
       <div class="flex items-center gap-3">
         ${button("Save & Reload Plugin", { variant: "primary", size: "lg", type: "submit" })}
@@ -77,14 +77,17 @@ export function configPage(data: ConfigData) {
   `, { activePage: "config" });
 }
 
-function thresholdsGrid(thresholds: Record<string, number>): string {
-  const sorted = Object.entries(thresholds).sort(([a], [b]) => parseInt(a) - parseInt(b));
-  const fields = sorted.map(([level, xp]) => `
-    <div>
-      <label class="block text-xs font-medium text-zinc-500 mb-1">Level ${level}</label>
-      <input type="number" name="threshold_${level}" value="${xp}" step="100"
-             class="flex h-9 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-transparent" />
-    </div>
-  `).join("");
-  return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">${fields}</div>`;
+function thresholdsGrid(thresholds: Record<string, number>, maxLevel: number): string {
+  const fields: string[] = [];
+  for (let level = 2; level <= maxLevel; level++) {
+    const xp = thresholds[String(level)] ?? "";
+    fields.push(`
+      <div>
+        <label class="block text-xs font-medium text-zinc-500 mb-1">Level ${level}</label>
+        <input type="number" name="threshold_${level}" value="${xp}" step="100"
+               class="flex h-9 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-transparent" />
+      </div>
+    `);
+  }
+  return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">${fields.join("")}</div>`;
 }
