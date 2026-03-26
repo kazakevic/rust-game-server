@@ -14,13 +14,13 @@ const rcon = new RconClient(
   process.env.RUST_RCON_PASSWORD || "changeme"
 );
 
-function getCookie(headers: Headers, name: string): string | undefined {
-  const cookies = headers.get("cookie") || "";
+function getCookie(headers: Record<string, string | undefined>, name: string): string | undefined {
+  const cookies = headers.cookie || "";
   const match = cookies.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
   return match?.[1];
 }
 
-function authGuard(headers: Headers): Response | null {
+function authGuard(headers: Record<string, string | undefined>): Response | null {
   const token = getCookie(headers, "session");
   if (!validateSession(token)) {
     return new Response(null, {
