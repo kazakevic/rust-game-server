@@ -33,6 +33,7 @@ export function layout(title: string, content: string) {
       <a href="/rcon" class="text-sm text-gray-400 hover:text-white">RCON Console</a>
       <a href="/logs" class="text-sm text-gray-400 hover:text-white">Logs</a>
       <a href="/config" class="text-sm text-gray-400 hover:text-white">Config</a>
+      <a href="/configs" class="text-sm text-gray-400 hover:text-white">Server Configs</a>
     </div>
     <form method="POST" action="/logout">
       <button class="text-sm text-gray-500 hover:text-red-400">Logout</button>

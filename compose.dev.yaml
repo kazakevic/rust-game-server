@@ -4,4 +4,5 @@ services:
     volumes:
       - ./web/src:/app/src
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./cfg:/cfg
     command: ["bun", "run", "--watch", "src/index.ts"]

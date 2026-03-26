@@ -7,6 +7,9 @@ import { dashboardPage } from "./views/dashboard";
 import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
 import { configPage } from "./views/config";
+import { configsListPage, configsEditPage } from "./views/configs";
+import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
+import { join, basename } from "path";
 
 const PORT = parseInt(process.env.WEB_PORT || "3000");
 
@@ -209,6 +212,87 @@ const app = new Elysia()
       const configData = { config: null, error: "Failed to save config: " + e.message };
       return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });
     }
+  })
+
+  // Server Configs - file browser & editor
+  .get("/configs", ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    try {
+      const files = readdirSync("/cfg").filter(f => !f.startsWith(".")).sort();
+      return new Response(configsListPage({ files }), { headers: { "Content-Type": "text/html" } });
+    } catch (e: any) {
+      return new Response(configsListPage({ files: [], error: "Failed to read /cfg: " + e.message }), {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+  })
+
+  .get("/configs/:filename", ({ headers, params, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const filename = basename(params.filename);
+    const filepath = join("/cfg", filename);
+    try {
+      const content = readFileSync(filepath, "utf-8");
+      const success = query.saved === "1" ? "File saved successfully." : undefined;
+      return new Response(configsEditPage({ filename, content, success }), {
+        headers: { "Content-Type": "text/html" },
+      });
+    } catch (e: any) {
+      return new Response(configsEditPage({ filename, content: "", error: "Failed to read file: " + e.message }), {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+  })
+
+  .post("/api/configs/create", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const form = body as Record<string, string>;
+    const filename = basename(form.filename || "").trim();
+    if (!filename || filename.startsWith(".") || filename.includes("/")) {
+      return new Response(null, { status: 302, headers: { Location: "/configs" } });
+    }
+
+    const filepath = join("/cfg", filename);
+    if (!existsSync(filepath)) {
+      writeFileSync(filepath, "", "utf-8");
+    }
+    return new Response(null, { status: 302, headers: { Location: `/configs/${encodeURIComponent(filename)}` } });
+  })
+
+  .post("/api/configs/:filename/save", async ({ headers, body, params }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const filename = basename(params.filename);
+    const filepath = join("/cfg", filename);
+    const form = body as Record<string, string>;
+
+    try {
+      writeFileSync(filepath, form.content || "", "utf-8");
+      return new Response(null, { status: 302, headers: { Location: `/configs/${encodeURIComponent(filename)}?saved=1` } });
+    } catch (e: any) {
+      return new Response(configsEditPage({ filename, content: form.content || "", error: "Failed to save: " + e.message }), {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+  })
+
+  .post("/api/configs/:filename/delete", async ({ headers, params }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const filename = basename(params.filename);
+    const filepath = join("/cfg", filename);
+    try {
+      unlinkSync(filepath);
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/configs" } });
   })
 
   // API: Server controls
