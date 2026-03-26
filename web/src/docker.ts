@@ -61,3 +61,30 @@ export async function startServer() {
   const container = await getContainer();
   await container.start();
 }
+
+export async function getServerLogs(tail: number = 200, since?: number): Promise<string> {
+  try {
+    const container = await getContainer();
+    const opts: any = { stdout: true, stderr: true, tail, timestamps: true };
+    if (since) opts.since = since;
+    const stream = await container.logs(opts);
+    // dockerode returns a Buffer; strip Docker stream headers (8-byte prefix per frame)
+    const raw = Buffer.isBuffer(stream) ? stream : Buffer.from(stream as any);
+    const lines: string[] = [];
+    let offset = 0;
+    while (offset < raw.length) {
+      if (offset + 8 > raw.length) break;
+      const size = raw.readUInt32BE(offset + 4);
+      if (offset + 8 + size > raw.length) {
+        // partial frame — take what we can
+        lines.push(raw.subarray(offset + 8).toString("utf-8"));
+        break;
+      }
+      lines.push(raw.subarray(offset + 8, offset + 8 + size).toString("utf-8"));
+      offset += 8 + size;
+    }
+    return lines.join("").replace(/\r/g, "");
+  } catch {
+    return "(unable to fetch logs — is the container running?)";
+  }
+}

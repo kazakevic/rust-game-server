@@ -1,10 +1,11 @@
 import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
-import { getServerStatus, getServerStats, restartServer, stopServer, startServer } from "./docker";
+import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer } from "./docker";
 import { RconClient } from "./rcon";
 import { loginPage } from "./views/login";
 import { dashboardPage } from "./views/dashboard";
 import { rconPage } from "./views/rcon";
+import { logsPage } from "./views/logs";
 
 const PORT = parseInt(process.env.WEB_PORT || "3000");
 
@@ -122,6 +123,23 @@ const app = new Elysia()
     } catch (e: any) {
       return { error: e.message };
     }
+  })
+
+  // Logs page
+  .get("/logs", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    const logs = await getServerLogs(200);
+    return new Response(logsPage(logs), { headers: { "Content-Type": "text/html" } });
+  })
+
+  // API: Logs
+  .get("/api/logs", async ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return { error: "unauthorized" };
+    const tail = Math.min(parseInt(query.tail || "200") || 200, 5000);
+    const logs = await getServerLogs(tail);
+    return { logs };
   })
 
   // API: Server controls
