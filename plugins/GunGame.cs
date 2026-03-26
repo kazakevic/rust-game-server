@@ -1709,7 +1709,7 @@ namespace Oxide.Plugins
         {
             if (string.IsNullOrEmpty(_config.KillRewardItemShortname)) return 0;
             int total = 0;
-            foreach (var item in player.inventory.AllItems())
+            foreach (var item in player.inventory.containerMain.itemList.Concat(player.inventory.containerBelt.itemList).Concat(player.inventory.containerWear.itemList))
             {
                 if (item.info.shortname == _config.KillRewardItemShortname)
                     total += item.amount;
@@ -1722,7 +1722,7 @@ namespace Oxide.Plugins
             if (GetCurrencyBalance(player) < amount) return false;
 
             int remaining = amount;
-            var items = player.inventory.AllItems()
+            var items = player.inventory.containerMain.itemList.Concat(player.inventory.containerBelt.itemList).Concat(player.inventory.containerWear.itemList)
                 .Where(i => i.info.shortname == _config.KillRewardItemShortname)
                 .ToList();
 
