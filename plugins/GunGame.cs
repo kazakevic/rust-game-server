@@ -110,6 +110,15 @@ namespace Oxide.Plugins
 
             [JsonProperty("TopListSize")]
             public int TopListSize { get; set; } = 10;
+
+            [JsonProperty("KillRewardItemShortname")]
+            public string KillRewardItemShortname { get; set; } = "blood";
+
+            [JsonProperty("KillRewardMinAmount")]
+            public int KillRewardMinAmount { get; set; } = 1;
+
+            [JsonProperty("KillRewardMaxAmount")]
+            public int KillRewardMaxAmount { get; set; } = 5;
         }
 
         protected override void LoadDefaultConfig()
@@ -898,7 +907,28 @@ namespace Oxide.Plugins
             if (didLevelUp)
                 ShowLevelUp(killer, killerData2);
 
+            GiveKillReward(killer);
+
             SavePlayer(killerData2);
+        }
+
+        private void GiveKillReward(BasePlayer player)
+        {
+            if (string.IsNullOrEmpty(_config.KillRewardItemShortname)) return;
+
+            var itemDef = ItemManager.FindItemDefinition(_config.KillRewardItemShortname);
+            if (itemDef == null)
+            {
+                PrintWarning($"Kill reward item '{_config.KillRewardItemShortname}' not found!");
+                return;
+            }
+
+            int amount = UnityEngine.Random.Range(_config.KillRewardMinAmount, _config.KillRewardMaxAmount + 1);
+            var item = ItemManager.Create(itemDef, amount);
+            if (item == null) return;
+
+            if (!player.inventory.GiveItem(item))
+                item.DropAndTossUpwards(player.transform.position);
         }
 
         private void OnPlayerRespawned(BasePlayer player)
