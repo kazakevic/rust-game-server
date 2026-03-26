@@ -14,13 +14,49 @@ export function rconPage() {
       </form>
     </div>
 
-    <div class="mt-4 flex flex-wrap gap-2">
-      ${quickBtn("status")}
-      ${quickBtn("serverinfo")}
-      ${quickBtn("playerlist")}
-      ${quickBtn("env.time")}
-      ${quickBtn("server.save")}
-      ${quickBtn("oxide.reload *")}
+    <div class="mt-4 space-y-3">
+      ${cmdGroup("Server Info", [
+        ["status", "Server status overview"],
+        ["serverinfo", "Detailed server info"],
+        ["playerlist", "List online players"],
+        ["server.fps", "Current server FPS"],
+        ["global.perf 6", "Performance report"],
+      ])}
+      ${cmdGroup("Server Control", [
+        ["server.save", "Save world"],
+        ["server.writecfg", "Save config to disk"],
+        ["restart 300 \"Server restarting in 5 minutes\"", "Restart in 5 min"],
+        ["quit", "Stop server"],
+      ])}
+      ${cmdGroup("World & Time", [
+        ["env.time", "Current time"],
+        ["env.time 12", "Set to noon"],
+        ["weather.fog 0", "Clear fog"],
+        ["weather.rain 0", "Clear rain"],
+        ["weather.clouds 0", "Clear clouds"],
+      ])}
+      ${cmdGroup("Players", [
+        ["users", "List connected users"],
+        ["sleepingusers", "List sleeping players"],
+        ["banlistex", "Show ban list"],
+        ["say \"Hello everyone!\"", "Broadcast message"],
+      ])}
+      ${cmdGroup("Oxide / uMod", [
+        ["oxide.reload *", "Reload all plugins"],
+        ["oxide.version", "Oxide version"],
+        ["plugins", "List loaded plugins"],
+        ["oxide.unload *", "Unload all plugins"],
+        ["oxide.load *", "Load all plugins"],
+        ["oxide.grant group default vanish.allow", "Grant plugin perm"],
+      ])}
+      ${cmdGroup("Admin & Debug", [
+        ["find .", "List all commands"],
+        ["gc.collect", "Force garbage collection"],
+        ["pool.status", "Memory pool status"],
+        ["entity.stats", "Entity statistics"],
+        ["server.seed", "Show map seed"],
+        ["server.worldsize", "Show map size"],
+      ])}
     </div>
 
     <script>
@@ -90,6 +126,17 @@ export function rconPage() {
   `);
 }
 
-function quickBtn(cmd: string) {
-  return `<button data-cmd="${cmd}" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs px-3 py-1.5 rounded">${cmd}</button>`;
+function cmdGroup(title: string, commands: [string, string][]) {
+  const buttons = commands
+    .map(([cmd, label]) =>
+      `<button data-cmd="${cmd}" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs px-3 py-1.5 rounded" title="${cmd}">${label}</button>`
+    )
+    .join("\n        ");
+  return `
+      <div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1.5">${title}</div>
+        <div class="flex flex-wrap gap-2">
+          ${buttons}
+        </div>
+      </div>`;
 }
