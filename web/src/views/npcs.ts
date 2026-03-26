@@ -6,7 +6,9 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
     ${opts?.success ? alert(opts.success, "success") + '<div class="mb-4"></div>' : ""}
     ${opts?.error ? alert(opts.error, "error") + '<div class="mb-4"></div>' : ""}
 
-    ${pageHeader("NPC Manager", { description: "Spawn and manage Human NPCs on the server" })}
+    ${pageHeader("NPC Manager", { description: "Spawn and manage Human NPCs on the server", actions: `
+      ${button("Reload Plugin", { variant: "outline", size: "sm", attrs: 'id="reload-plugin-btn" title="Reload NpcAdmin plugin on the server"' })}
+    ` })}
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
       <div class="lg:col-span-2">
@@ -96,6 +98,7 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       const refreshPlayersBtn = document.getElementById('refresh-players');
       const refreshNpcsBtn = document.getElementById('refresh-npcs');
       const removeAllBtn = document.getElementById('remove-all-btn');
+      const reloadPluginBtn = document.getElementById('reload-plugin-btn');
       const confirmRemoveAllBtn = document.getElementById('confirm-remove-all-btn');
       const npcListEl = document.getElementById('npc-list');
       const spawnError = document.getElementById('spawn-error');
@@ -275,6 +278,22 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
           loadNpcs();
         } catch (e) {
           showMsg(spawnError, 'Failed to remove NPCs: ' + e.message, 'error');
+        }
+      });
+
+      reloadPluginBtn.addEventListener('click', async () => {
+        reloadPluginBtn.disabled = true;
+        reloadPluginBtn.textContent = 'Reloading...';
+        try {
+          await rcon('oxide.reload NpcAdmin');
+          await rcon('oxide.reload HumanNPC');
+          showMsg(spawnSuccess, 'NpcAdmin and HumanNPC plugins reloaded.', 'success');
+          setTimeout(loadNpcs, 1000);
+        } catch (e) {
+          showMsg(spawnError, 'Failed to reload: ' + e.message, 'error');
+        } finally {
+          reloadPluginBtn.disabled = false;
+          reloadPluginBtn.textContent = 'Reload Plugin';
         }
       });
 
