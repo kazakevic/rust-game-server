@@ -46,6 +46,7 @@ export function layout(title: string, content: string, opts?: { activePage?: str
           ${navLink("/logs", "Logs", "logs")}
           ${navLink("/npcs", "NPCs", "npcs")}
           ${navLink("/config/gungame", "GunGame", "config")}
+          ${navLink("/config/stacksize", "Stacks", "stacksize")}
           ${navLink("/configs", "Server Configs", "configs")}
         </div>
       </div>

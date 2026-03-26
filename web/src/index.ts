@@ -9,6 +9,7 @@ import { logsPage } from "./views/logs";
 import { configPage } from "./views/config";
 import { configsListPage, configsEditPage } from "./views/configs";
 import { npcsPage } from "./views/npcs";
+import { stackSizePage } from "./views/stacksize";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 
@@ -230,6 +231,95 @@ const app = new Elysia()
     } catch (e: any) {
       const configData = { config: null, error: "Failed to save config: " + e.message };
       return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });
+    }
+  })
+
+  // StackSizeController config page
+  .get("/config/stacksize", async ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    let config: Record<string, any> | null = null;
+    let error: string | undefined;
+    let success: string | undefined;
+
+    if (query.saved === "1") success = "Stack sizes saved and plugin reloaded.";
+
+    try {
+      const configPath = "/rust-data/oxide/config/StackSizeController.json";
+      const file = Bun.file(configPath);
+      const raw = await file.text();
+      config = JSON.parse(raw);
+    } catch (e: any) {
+      error = "Failed to load config: " + e.message;
+    }
+
+    return new Response(stackSizePage({ config, error, success }), {
+      headers: { "Content-Type": "text/html" },
+    });
+  })
+
+  // API: Save StackSizeController config
+  .post("/api/config/stacksize/save", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const configPath = "/rust-data/oxide/config/StackSizeController.json";
+
+    try {
+      const file = Bun.file(configPath);
+      const raw = await file.text();
+      const config = JSON.parse(raw);
+
+      const form = body as Record<string, string>;
+
+      // Global multiplier
+      const globalKey = "Default Stack Multiplier (applies to all items not specifically configured)";
+      if ("global_multiplier" in form) {
+        const val = parseFloat(form.global_multiplier) || 1;
+        // Try both known key formats
+        if (globalKey in config) {
+          config[globalKey] = val;
+        } else if ("GlobalStackMultiplier" in config) {
+          config["GlobalStackMultiplier"] = val;
+        } else {
+          config[globalKey] = val;
+        }
+      }
+
+      // Category multipliers
+      if (!config["Category Multipliers"]) config["Category Multipliers"] = {};
+      for (const [key, value] of Object.entries(form)) {
+        if (key.startsWith("cat_")) {
+          const category = key.slice(4);
+          if (value === "" || value === undefined) {
+            delete config["Category Multipliers"][category];
+          } else {
+            config["Category Multipliers"][category] = parseFloat(value) || 0;
+          }
+        }
+      }
+
+      // Individual item multipliers - rebuild from form
+      const items: Record<string, number> = {};
+      for (const [key, value] of Object.entries(form)) {
+        if (key.startsWith("item_")) {
+          const itemName = key.slice(5);
+          items[itemName] = parseFloat(value) || 1;
+        }
+      }
+      config["Individual Item Multipliers"] = items;
+
+      const json = JSON.stringify(config, null, 2);
+      await Bun.write(configPath, json);
+
+      try { await rcon.command("oxide.reload StackSizeController"); } catch {}
+
+      return new Response(null, { status: 302, headers: { Location: "/config/stacksize?saved=1" } });
+    } catch (e: any) {
+      return new Response(stackSizePage({ config: null, error: "Failed to save config: " + e.message }), {
+        headers: { "Content-Type": "text/html" },
+      });
     }
   })
 
