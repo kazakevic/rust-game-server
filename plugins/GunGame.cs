@@ -536,12 +536,14 @@ namespace Oxide.Plugins
 
             OpenDatabase();
 
-            // Show XP bar for all currently online players (handles plugin reload)
+            // Recalculate levels and refresh UI for all online players (handles plugin reload / config change)
             timer.Once(1f, () =>
             {
                 foreach (var player in BasePlayer.activePlayerList)
                 {
                     var data = GetOrCreatePlayer(player);
+                    RecalculateLevel(data);
+                    EquipKit(player, data.Level);
                     CreateXPBar(player, data);
                 }
             });
@@ -778,6 +780,20 @@ namespace Oxide.Plugins
                 leveledUp = true;
             }
             return leveledUp;
+        }
+
+        private void RecalculateLevel(PlayerData data)
+        {
+            // Reset to level 1 and re-derive level from current XP and thresholds
+            data.Level = 1;
+            while (data.Level < _config.MaxLevel && data.XP >= GetXPForNextLevel(data.Level))
+            {
+                data.Level++;
+            }
+            // Cap level to MaxLevel
+            if (data.Level > _config.MaxLevel)
+                data.Level = _config.MaxLevel;
+            data.Dirty = true;
         }
 
         private int GetXPForNextLevel(int currentLevel)
