@@ -66,8 +66,43 @@ export function configPage(data: ConfigData) {
       `, { description: "General plugin configuration" })}
 
       ${section("Level XP Thresholds", `
-        ${thresholdsGrid(config.LevelXPThresholds || {}, config.MaxLevel ?? 5)}
-      `, { description: "XP required to reach each level — automatically adapts to Maximum Level setting" })}
+        <div id="thresholds-container">
+          ${thresholdsGrid(config.LevelXPThresholds || {}, config.MaxLevel ?? 5)}
+        </div>
+        <script>
+          (function() {
+            const maxInput = document.querySelector('input[name="MaxLevel"]');
+            const container = document.getElementById('thresholds-container');
+            if (!maxInput || !container) return;
+
+            function getCurrentValues() {
+              const vals = {};
+              container.querySelectorAll('input[type="number"]').forEach(inp => {
+                const m = inp.name.match(/^threshold_(\\d+)$/);
+                if (m) vals[m[1]] = inp.value;
+              });
+              return vals;
+            }
+
+            function rebuild() {
+              const max = parseInt(maxInput.value) || 2;
+              const vals = getCurrentValues();
+              const gridClass = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3";
+              const inputClass = "flex h-9 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-transparent";
+              let html = '<div class="' + gridClass + '">';
+              for (let lvl = 2; lvl <= max; lvl++) {
+                const val = vals[lvl] || "";
+                html += '<div><label class="block text-xs font-medium text-zinc-500 mb-1">Level ' + lvl + '</label>';
+                html += '<input type="number" name="threshold_' + lvl + '" value="' + val + '" step="100" class="' + inputClass + '" /></div>';
+              }
+              html += '</div>';
+              container.innerHTML = html;
+            }
+
+            maxInput.addEventListener('input', rebuild);
+          })();
+        </script>
+      `, { description: "XP required to reach each level — adapts to Maximum Level" })}
 
       <div class="flex items-center gap-3">
         ${button("Save & Reload Plugin", { variant: "primary", size: "lg", type: "submit" })}
