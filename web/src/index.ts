@@ -142,7 +142,7 @@ const app = new Elysia()
   })
 
   // Config page
-  .get("/config", async ({ headers, query }) => {
+  .get("/config/gungame", async ({ headers, query }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
@@ -165,7 +165,7 @@ const app = new Elysia()
   })
 
   // API: Save config
-  .post("/api/config/save", async ({ headers, body }) => {
+  .post("/api/config/gungame/save", async ({ headers, body }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
@@ -207,7 +207,7 @@ const app = new Elysia()
       // Reload plugin to pick up changes
       try { await rcon.command("oxide.reload GunGame"); } catch {}
 
-      return new Response(null, { status: 302, headers: { Location: "/config?saved=1" } });
+      return new Response(null, { status: 302, headers: { Location: "/config/gungame?saved=1" } });
     } catch (e: any) {
       const configData = { config: null, error: "Failed to save config: " + e.message };
       return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });

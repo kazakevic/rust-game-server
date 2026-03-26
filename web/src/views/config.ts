@@ -27,7 +27,7 @@ export function configPage(data: ConfigData) {
     ${pageHeader("GunGame Config", { description: "Configure the GunGame plugin settings" })}
     ${banner ? `<div class="mb-6">${banner}</div>` : ""}
 
-    <form method="POST" action="/api/config/save" class="space-y-6">
+    <form method="POST" action="/api/config/gungame/save" class="space-y-6">
 
       ${section("XP Settings", `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -71,7 +71,7 @@ export function configPage(data: ConfigData) {
 
       <div class="flex items-center gap-3">
         ${button("Save & Reload Plugin", { variant: "primary", size: "lg", type: "submit" })}
-        <a href="/config" class="inline-flex items-center justify-center rounded-lg h-10 px-6 text-sm font-medium border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors">Reset Form</a>
+        <a href="/config/gungame" class="inline-flex items-center justify-center rounded-lg h-10 px-6 text-sm font-medium border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors">Reset Form</a>
       </div>
     </form>
   `, { activePage: "config" });
