@@ -11,6 +11,10 @@ export class RconClient {
 
   private async connect(): Promise<WebSocket> {
     if (this.ws?.readyState === WebSocket.OPEN) return this.ws;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://${this.host}:${this.port}/${this.password}`);
@@ -43,6 +47,10 @@ export class RconClient {
 
       ws.onclose = () => {
         this.ws = null;
+        for (const [id, handler] of this.pending) {
+          handler.reject(new Error("RCON connection lost"));
+        }
+        this.pending.clear();
       };
     });
   }
@@ -55,7 +63,7 @@ export class RconClient {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("RCON command timeout"));
-      }, 10000);
+      }, 30000);
 
       this.pending.set(id, {
         resolve: (msg) => {
