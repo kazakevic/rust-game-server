@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 
 namespace Oxide.Plugins
 {
@@ -26,8 +27,6 @@ namespace Oxide.Plugins
 
         private const string PermAdmin = "gungame.admin";
 
-        private bool _testMode = false;
-
         #endregion
 
         #region Configuration
@@ -44,6 +43,12 @@ namespace Oxide.Plugins
 
             [JsonProperty("DistanceBonusXPPer50m")]
             public int DistanceBonusXPPer50m { get; set; } = 15;
+
+            [JsonProperty("XPPerAnimalKill")]
+            public int XPPerAnimalKill { get; set; } = 10;
+
+            [JsonProperty("XPPerNPCKill")]
+            public int XPPerNPCKill { get; set; } = 20;
 
             [JsonProperty("DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)")]
             public float DifficultyMultiplier { get; set; } = 1.0f;
@@ -113,6 +118,8 @@ namespace Oxide.Plugins
             public int Kills { get; set; }
             public int Deaths { get; set; }
             public int Headshots { get; set; }
+            public int AnimalKills { get; set; }
+            public int NPCKills { get; set; }
             public int XP { get; set; }
             public int Level { get; set; } = 1;
             public bool Dirty { get; set; }
@@ -131,8 +138,8 @@ namespace Oxide.Plugins
                 ["XPGained"] = "You gained <color=#00ff00>+{0} XP</color> ({1} total) — Level {2}",
                 ["LevelUp"] = "<color=#ffff00>LEVEL UP!</color> You are now <color=#00ffff>Level {0}</color>!",
                 ["MaxLevel"] = "<color=#ffff00>You have reached the maximum level!</color>",
-                ["Stats"] = "<color=#00ffff>--- Your Stats ---</color>\nLevel: {0} | XP: {1}/{2}\nKills: {3} | Deaths: {4} | K/D: {5}\nHeadshots: {6}",
-                ["StatsOther"] = "<color=#00ffff>--- {0}'s Stats ---</color>\nLevel: {1} | XP: {2}\nKills: {3} | Deaths: {4} | K/D: {5}\nHeadshots: {6}",
+                ["Stats"] = "<color=#00ffff>--- Your Stats ---</color>\nLevel: {0} | XP: {1}/{2}\nKills: {3} | Deaths: {4} | K/D: {5}\nHeadshots: {6} | Animals: {7} | NPCs: {8}",
+                ["StatsOther"] = "<color=#00ffff>--- {0}'s Stats ---</color>\nLevel: {1} | XP: {2}\nKills: {3} | Deaths: {4} | K/D: {5}\nHeadshots: {6} | Animals: {7} | NPCs: {8}",
                 ["TopHeader"] = "<color=#00ffff>--- Gun Game Leaderboard ---</color>",
                 ["TopEntry"] = "#{0} <color=#ffff00>{1}</color> — Level {2} | XP: {3} | Kills: {4} | K/D: {5}",
                 ["TopEmpty"] = "No player data yet.",
@@ -142,12 +149,11 @@ namespace Oxide.Plugins
                 ["PlayerNotFound"] = "Player not found.",
                 ["InvalidLevel"] = "Invalid level. Must be between 1 and {0}.",
                 ["NoPermission"] = "You don't have permission to use this command.",
-                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg testmode — Toggle test mode: NPC kills grant XP (admin)\n/gg wipe — Reset all data (admin)",
+                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
                 ["KitNotFound"] = "<color=#ff0000>Kit '{0}' not found. Ask an admin to create it.</color>",
                 ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>",
-                ["TestModeOn"] = "<color=#00ff00>Test Mode ENABLED.</color> NPC kills now grant XP.",
-                ["TestModeOff"] = "<color=#ff6600>Test Mode DISABLED.</color> NPC kills are ignored.",
-                ["TestModeStatus"] = "Test Mode is currently <color=#ffff00>{0}</color>.",
+                ["AnimalKillXP"] = "You gained <color=#00ff00>+{0} XP</color> from an animal kill ({1} total) — Level {2}",
+                ["NPCKillXP"] = "You gained <color=#00ff00>+{0} XP</color> from an NPC kill ({1} total) — Level {2}",
             }, this);
         }
 
@@ -161,6 +167,52 @@ namespace Oxide.Plugins
         {
             if (player == null) return;
             player.ChatMessage($"{_config.ChatPrefix} {Lang(key, player, args)}");
+        }
+
+        private string BuildProgressBar(int currentXP, int nextLevelXP, int barLength = 20)
+        {
+            if (nextLevelXP == int.MaxValue)
+                return "<color=#ffff00>[████████████████████]</color> MAX";
+
+            float progress = Mathf.Clamp01((float)currentXP / nextLevelXP);
+            int filled = Mathf.RoundToInt(progress * barLength);
+            int empty = barLength - filled;
+
+            string filledBar = new string('█', filled);
+            string emptyBar = new string('░', empty);
+            int percent = Mathf.RoundToInt(progress * 100f);
+
+            return $"<color=#00ff00>{filledBar}</color><color=#555555>{emptyBar}</color> {percent}% ({currentXP}/{nextLevelXP})";
+        }
+
+        private void ShowXPGain(BasePlayer player, PlayerData data, int xpGained, string sourceKey)
+        {
+            int nextXP = GetXPForNextLevel(data.Level);
+            string bar = BuildProgressBar(data.XP, nextXP);
+
+            Message(player, sourceKey, xpGained, data.XP, data.Level);
+            player.ChatMessage($"{_config.ChatPrefix} Lv.{data.Level} {bar}");
+
+            // Play a subtle sound on XP gain
+            Effect.server.Run("assets/bundled/prefabs/fx/notice/item.select.fx.prefab", player.transform.position);
+        }
+
+        private void ShowLevelUp(BasePlayer player, PlayerData data)
+        {
+            if (data.Level >= _config.MaxLevel)
+            {
+                Message(player, "MaxLevel");
+            }
+            else
+            {
+                Message(player, "LevelUp", data.Level);
+            }
+
+            // Play level up sound & screen flash
+            Effect.server.Run("assets/bundled/prefabs/fx/gestures/drink_raise.prefab", player.transform.position);
+            player.SignalBroadcast(BaseEntity.Signal.Gesture, "victory");
+
+            EquipKit(player, data.Level);
         }
 
         #endregion
@@ -206,12 +258,18 @@ namespace Oxide.Plugins
                     kills INTEGER NOT NULL DEFAULT 0,
                     deaths INTEGER NOT NULL DEFAULT 0,
                     headshots INTEGER NOT NULL DEFAULT 0,
+                    animal_kills INTEGER NOT NULL DEFAULT 0,
+                    npc_kills INTEGER NOT NULL DEFAULT 0,
                     xp INTEGER NOT NULL DEFAULT 0,
                     level INTEGER NOT NULL DEFAULT 1,
                     last_updated TEXT NOT NULL DEFAULT (datetime('now'))
                 );";
 
             _sqlite.ExecuteNonQuery(Sql.Builder.Append(createTable), _db);
+
+            // Migrate: add columns if they don't exist (ALTER TABLE IF NOT EXISTS not supported, so ignore errors)
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN animal_kills INTEGER NOT NULL DEFAULT 0;"), _db);
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN npc_kills INTEGER NOT NULL DEFAULT 0;"), _db);
 
             LoadAllPlayers();
         }
@@ -224,7 +282,7 @@ namespace Oxide.Plugins
 
         private void LoadAllPlayers()
         {
-            string query = "SELECT steam_id, display_name, kills, deaths, headshots, xp, level FROM player_stats;";
+            string query = "SELECT steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level FROM player_stats;";
             _sqlite.Query(Sql.Builder.Append(query), _db, results =>
             {
                 if (results == null) return;
@@ -239,6 +297,8 @@ namespace Oxide.Plugins
                         Kills = Convert.ToInt32(row["kills"]),
                         Deaths = Convert.ToInt32(row["deaths"]),
                         Headshots = Convert.ToInt32(row["headshots"]),
+                        AnimalKills = Convert.ToInt32(row["animal_kills"]),
+                        NPCKills = Convert.ToInt32(row["npc_kills"]),
                         XP = Convert.ToInt32(row["xp"]),
                         Level = Convert.ToInt32(row["level"]),
                         Dirty = false
@@ -254,15 +314,17 @@ namespace Oxide.Plugins
             if (!data.Dirty) return;
 
             string upsert = @"
-                INSERT INTO player_stats (steam_id, display_name, kills, deaths, headshots, xp, level, last_updated)
-                VALUES (@0, @1, @2, @3, @4, @5, @6, datetime('now'))
+                INSERT INTO player_stats (steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level, last_updated)
+                VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, datetime('now'))
                 ON CONFLICT(steam_id) DO UPDATE SET
                     display_name = @1,
                     kills = @2,
                     deaths = @3,
                     headshots = @4,
-                    xp = @5,
-                    level = @6,
+                    animal_kills = @5,
+                    npc_kills = @6,
+                    xp = @7,
+                    level = @8,
                     last_updated = datetime('now');";
 
             _sqlite.ExecuteNonQuery(
@@ -272,6 +334,8 @@ namespace Oxide.Plugins
                     data.Kills,
                     data.Deaths,
                     data.Headshots,
+                    data.AnimalKills,
+                    data.NPCKills,
                     data.XP,
                     data.Level),
                 _db);
@@ -379,29 +443,54 @@ namespace Oxide.Plugins
         // HumanNPC hook — called when a HumanNPC bot is killed
         private void OnKillNPC(BasePlayer npc, HitInfo info)
         {
-            if (!_testMode || npc == null || info == null) return;
+            if (npc == null || info == null) return;
 
             BasePlayer killer = info.InitiatorPlayer;
             if (killer == null || IsNpc(killer)) return;
 
             var killerData = GetOrCreatePlayer(killer);
-            killerData.Kills++;
+            killerData.NPCKills++;
 
-            int xpGained = CalculateXP(killerData, info);
+            int xpGained = _config.XPPerNPCKill;
+            if (info.isHeadshot)
+                xpGained += _config.HeadshotBonusXP;
+
             killerData.XP += xpGained;
             killerData.Dirty = true;
 
             bool leveledUp = CheckLevelUp(killerData);
 
-            Message(killer, "XPGained", xpGained, killerData.XP, killerData.Level);
+            ShowXPGain(killer, killerData, xpGained, "NPCKillXP");
             if (leveledUp)
-            {
-                if (killerData.Level >= _config.MaxLevel)
-                    Message(killer, "MaxLevel");
-                else
-                    Message(killer, "LevelUp", killerData.Level);
-                EquipKit(killer, killerData.Level);
-            }
+                ShowLevelUp(killer, killerData);
+
+            SavePlayer(killerData);
+        }
+
+        // Called when any entity dies — used to track animal kills
+        private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
+        {
+            if (entity == null || info == null) return;
+            if (entity is BasePlayer) return; // Handled by OnPlayerDeath/OnKillNPC
+
+            BasePlayer killer = info.InitiatorPlayer;
+            if (killer == null || IsNpc(killer)) return;
+
+            // Check if the entity is an animal (BaseAnimalNPC or derived types)
+            if (!(entity is BaseAnimalNPC)) return;
+
+            var killerData = GetOrCreatePlayer(killer);
+            killerData.AnimalKills++;
+
+            int xpGained = _config.XPPerAnimalKill;
+            killerData.XP += xpGained;
+            killerData.Dirty = true;
+
+            bool leveledUp = CheckLevelUp(killerData);
+
+            ShowXPGain(killer, killerData, xpGained, "AnimalKillXP");
+            if (leveledUp)
+                ShowLevelUp(killer, killerData);
 
             SavePlayer(killerData);
         }
@@ -448,18 +537,11 @@ namespace Oxide.Plugins
             // Check level up
             bool didLevelUp = CheckLevelUp(killerData2);
 
-            // Notify killer
-            Message(killer, "XPGained", xpEarned, killerData2.XP, killerData2.Level);
+            // Notify killer with progress bar
+            ShowXPGain(killer, killerData2, xpEarned, "XPGained");
 
             if (didLevelUp)
-            {
-                if (killerData2.Level >= _config.MaxLevel)
-                    Message(killer, "MaxLevel");
-                else
-                    Message(killer, "LevelUp", killerData2.Level);
-
-                EquipKit(killer, killerData2.Level);
-            }
+                ShowLevelUp(killer, killerData2);
 
             SavePlayer(killerData2);
         }
@@ -476,7 +558,7 @@ namespace Oxide.Plugins
                     EquipKit(player, data.Level);
                     int nextXP = GetXPForNextLevel(data.Level);
                     string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{data.XP}/{nextXP}";
-                    Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots);
+                    Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots, data.AnimalKills, data.NPCKills);
                 }
             });
         }
@@ -588,12 +670,6 @@ namespace Oxide.Plugins
                     }
                     break;
 
-                case "testmode":
-                    if (!HasAdmin(player)) return;
-                    _testMode = !_testMode;
-                    Message(player, _testMode ? "TestModeOn" : "TestModeOff");
-                    break;
-
                 case "help":
                     Message(player, "Usage");
                     break;
@@ -613,12 +689,12 @@ namespace Oxide.Plugins
             var data = GetOrCreatePlayer(target);
             int nextXP = GetXPForNextLevel(data.Level);
             string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{data.XP}/{nextXP}";
-            Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots);
+            Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots, data.AnimalKills, data.NPCKills);
         }
 
         private void ShowStatsOther(BasePlayer player, PlayerData target)
         {
-            Message(player, "StatsOther", target.DisplayName, target.Level, target.XP, target.Kills, target.Deaths, target.KDRatio, target.Headshots);
+            Message(player, "StatsOther", target.DisplayName, target.Level, target.XP, target.Kills, target.Deaths, target.KDRatio, target.Headshots, target.AnimalKills, target.NPCKills);
         }
 
         private void ShowLeaderboard(BasePlayer player)
