@@ -17,10 +17,10 @@ export function dashboardPage(data: DashboardData) {
       <h2 class="text-2xl font-bold">Server Dashboard</h2>
       <div class="flex gap-2">
         ${status.running ? `
-          <form method="POST" action="/api/server/restart">
+          <form method="POST" action="/api/server/restart" onsubmit="return confirm('Are you sure you want to restart the server?')">
             <button class="bg-yellow-600 hover:bg-yellow-700 text-white text-sm px-4 py-2 rounded">Restart</button>
           </form>
-          <form method="POST" action="/api/server/stop">
+          <form method="POST" action="/api/server/stop" onsubmit="return confirm('Are you sure you want to stop the server?')">
             <button class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded">Stop</button>
           </form>
         ` : `
