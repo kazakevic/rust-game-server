@@ -10,22 +10,7 @@ services:
       - "${RUST_RCON_PORT:-28016}:${RUST_RCON_PORT:-28016}/tcp"
       - "${RUST_SERVER_QUERYPORT:-28016}:${RUST_SERVER_QUERYPORT:-28016}/udp"
       - "${RUST_APP_PORT:-28082}:${RUST_APP_PORT:-28082}/tcp"
-    environment:
-      - RUST_SERVER_NAME=${RUST_SERVER_NAME}
-      - RUST_SERVER_IDENTITY=${RUST_SERVER_IDENTITY}
-      - RUST_SERVER_SEED=${RUST_SERVER_SEED}
-      - RUST_SERVER_WORLDSIZE=${RUST_SERVER_WORLDSIZE}
-      - RUST_SERVER_MAXPLAYERS=${RUST_SERVER_MAXPLAYERS}
-      - RUST_SERVER_PORT=${RUST_SERVER_PORT}
-      - RUST_SERVER_QUERYPORT=${RUST_SERVER_QUERYPORT}
-      - RUST_RCON_PORT=${RUST_RCON_PORT}
-      - RUST_RCON_PASSWORD=${RUST_RCON_PASSWORD}
-      - RUST_RCON_WEB=${RUST_RCON_WEB}
-      - RUST_APP_PORT=${RUST_APP_PORT}
-      - UMOD_ENABLED=${UMOD_ENABLED:-1}
-      - RUST_UPDATE_ON_START=${RUST_UPDATE_ON_START:-1}
-      - UMOD_AUTO_UPDATE=${UMOD_AUTO_UPDATE:-1}
-      - UMOD_UPDATE_SCHEDULE=${UMOD_UPDATE_SCHEDULE:-0 */6 * * *}
+    env_file: .env
     volumes:
       - rust-data:/rust
       - ./plugins:/plugins:ro
@@ -39,12 +24,8 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+    env_file: .env
     environment:
-      - WEB_PORT=${WEB_PORT:-3000}
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASS=${ADMIN_PASS:-changeme}
-      - RUST_RCON_PORT=${RUST_RCON_PORT:-28016}
-      - RUST_RCON_PASSWORD=${RUST_RCON_PASSWORD}
       - RUST_CONTAINER_NAME=rust-server
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
