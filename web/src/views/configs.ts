@@ -3,6 +3,7 @@ import { layout } from "./layout";
 interface ConfigsListData {
   files: string[];
   error?: string;
+  success?: string;
 }
 
 interface ConfigsEditData {
@@ -13,10 +14,12 @@ interface ConfigsEditData {
 }
 
 export function configsListPage(data: ConfigsListData) {
-  const { files, error } = data;
+  const { files, error, success } = data;
 
   const banner = error
     ? `<div class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded mb-6">${escapeHtml(error)}</div>`
+    : success
+    ? `<div class="bg-green-900/50 border border-green-700 text-green-300 px-4 py-3 rounded mb-6">${escapeHtml(success)}</div>`
     : "";
 
   const fileRows = files.length
@@ -39,10 +42,17 @@ export function configsListPage(data: ConfigsListData) {
   return layout("Server Configs", `
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-bold">Server Configs</h2>
-      <button onclick="document.getElementById('new-file-modal').classList.remove('hidden')"
-              class="bg-rust-600 hover:bg-rust-700 text-white px-4 py-2 rounded text-sm font-medium">
-        New File
-      </button>
+      <div class="flex gap-2">
+        <form method="POST" action="/api/configs/reload">
+          <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium">
+            Reload Server Configs
+          </button>
+        </form>
+        <button onclick="document.getElementById('new-file-modal').classList.remove('hidden')"
+                class="bg-rust-600 hover:bg-rust-700 text-white px-4 py-2 rounded text-sm font-medium">
+          New File
+        </button>
+      </div>
     </div>
     ${banner}
     <div class="space-y-2">

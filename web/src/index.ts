@@ -215,13 +215,14 @@ const app = new Elysia()
   })
 
   // Server Configs - file browser & editor
-  .get("/configs", ({ headers }) => {
+  .get("/configs", ({ headers, query }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
+    const success = query.reloaded === "1" ? "Server configs reloaded." : undefined;
     try {
       const files = readdirSync("/cfg").filter(f => !f.startsWith(".")).sort();
-      return new Response(configsListPage({ files }), { headers: { "Content-Type": "text/html" } });
+      return new Response(configsListPage({ files, success }), { headers: { "Content-Type": "text/html" } });
     } catch (e: any) {
       return new Response(configsListPage({ files: [], error: "Failed to read /cfg: " + e.message }), {
         headers: { "Content-Type": "text/html" },
@@ -246,6 +247,15 @@ const app = new Elysia()
         headers: { "Content-Type": "text/html" },
       });
     }
+  })
+
+  .post("/api/configs/reload", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    try {
+      await rcon.command("server.readcfg");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/configs?reloaded=1" } });
   })
 
   .post("/api/configs/create", async ({ headers, body }) => {
