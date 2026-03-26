@@ -294,7 +294,7 @@ namespace Oxide.Plugins
 
             elements.Add(new CuiLabel
             {
-                Text = { Text = $"LV {data.Level}", FontSize = 8, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
+                Text = { Text = isMax ? $"LV {data.Level}" : $"LV {data.Level}/{_config.MaxLevel}", FontSize = 8, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
                 RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
             }, CUI_XPBar + "_LvlBg");
 
