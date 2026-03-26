@@ -34,10 +34,7 @@ else
     echo "==> uMod disabled, skipping."
 fi
 
-# Setup uMod auto-update cron if enabled
-if [ "${UMOD_ENABLED:-1}" = "1" ] && [ "${UMOD_AUTO_UPDATE:-1}" = "1" ]; then
-    /scripts/setup-cron.sh
-fi
+# uMod auto-update is handled via web admin panel
 
 # Copy server cfg files (users.cfg, etc.)
 SERVER_CFG_DIR="${RUST_SERVER_DIR}/server/${RUST_SERVER_IDENTITY:-docker}/cfg"
