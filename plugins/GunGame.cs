@@ -252,6 +252,11 @@ namespace Oxide.Plugins
             player.SignalBroadcast(BaseEntity.Signal.Gesture, "victory");
 
             EquipKit(player, data.Level);
+
+            // Restore full HP, food, and water
+            player.health = player.MaxHealth();
+            player.metabolism.calories.SetValue(player.metabolism.calories.max);
+            player.metabolism.hydration.SetValue(player.metabolism.hydration.max);
         }
 
         #endregion

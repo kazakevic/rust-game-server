@@ -6,6 +6,7 @@ import { loginPage } from "./views/login";
 import { dashboardPage } from "./views/dashboard";
 import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
+import { configPage } from "./views/config";
 
 const PORT = parseInt(process.env.WEB_PORT || "3000");
 
@@ -135,6 +136,79 @@ const app = new Elysia()
     const tail = Math.min(parseInt(query.tail || "200") || 200, 5000);
     const logs = await getServerLogs(tail);
     return { logs };
+  })
+
+  // Config page
+  .get("/config", async ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    let config: Record<string, any> | null = null;
+    let error: string | undefined;
+    let success: string | undefined;
+
+    if (query.saved === "1") success = "Config saved and plugin reloaded.";
+
+    try {
+      const raw = await execInServer(["cat", "/rust/oxide/config/GunGame.json"]);
+      config = JSON.parse(raw);
+    } catch (e: any) {
+      error = "Failed to load config: " + e.message;
+    }
+
+    return new Response(configPage({ config, error, success }), {
+      headers: { "Content-Type": "text/html" },
+    });
+  })
+
+  // API: Save config
+  .post("/api/config/save", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    try {
+      // Read current config
+      const raw = await execInServer(["cat", "/rust/oxide/config/GunGame.json"]);
+      const config = JSON.parse(raw);
+
+      const form = body as Record<string, string>;
+
+      // Apply simple fields
+      const intFields = ["XPPerKill", "HeadshotBonusXP", "DistanceBonusXPPer50m", "XPPerAnimalKill", "XPPerNPCKill", "MaxLevel", "TopListSize", "KillRewardMinAmount", "KillRewardMaxAmount"];
+      for (const key of intFields) {
+        if (key in form) config[key] = parseInt(form[key]) || 0;
+      }
+
+      const floatKey = "DifficultyMultiplier (scales XP thresholds: 0.5=easy, 1.0=normal, 2.0=hard)";
+      if (floatKey in form) config[floatKey] = parseFloat(form[floatKey]) || 1.0;
+
+      const strFields = ["KitPrefix", "ChatPrefix", "KillRewardItemShortname"];
+      for (const key of strFields) {
+        if (key in form) config[key] = form[key];
+      }
+
+      if ("WipeOnNewSave" in form) config.WipeOnNewSave = form.WipeOnNewSave === "true";
+
+      // Apply thresholds
+      for (const [key, val] of Object.entries(form)) {
+        if (key.startsWith("threshold_")) {
+          const level = key.replace("threshold_", "");
+          config.LevelXPThresholds[level] = parseInt(val as string) || 0;
+        }
+      }
+
+      // Write config back
+      const json = JSON.stringify(config, null, 2);
+      await execInServer(["bash", "-c", `cat > /rust/oxide/config/GunGame.json << 'CONFIGEOF'\n${json}\nCONFIGEOF`]);
+
+      // Reload plugin to pick up changes
+      try { await rcon.command("oxide.reload GunGame"); } catch {}
+
+      return new Response(null, { status: 302, headers: { Location: "/config?saved=1" } });
+    } catch (e: any) {
+      const configData = { config: null, error: "Failed to save config: " + e.message };
+      return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });
+    }
   })
 
   // API: Server controls
