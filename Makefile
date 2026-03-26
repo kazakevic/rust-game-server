@@ -1,5 +1,6 @@
-.PHONY: build up down restart logs rcon shell clean plugins reload update update-umod
+.PHONY: build up down restart logs rcon shell clean plugins reload update update-umod web-logs
 
+# ─── Full Stack ─────────────────────────────────────────
 build:
 	docker compose build
 
@@ -12,6 +13,10 @@ down:
 restart:
 	docker compose restart
 
+clean:
+	docker compose down -v
+
+# ─── Rust Server ────────────────────────────────────────
 logs:
 	docker compose logs -f rust-server
 
@@ -34,5 +39,12 @@ reload:
 update-umod:
 	docker compose exec rust-server /scripts/update-umod.sh
 
-clean:
-	docker compose down -v
+# ─── Web Admin ──────────────────────────────────────────
+web-logs:
+	docker compose logs -f web-admin
+
+web-restart:
+	docker compose restart web-admin
+
+web-build:
+	docker compose build web-admin

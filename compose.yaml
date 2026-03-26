@@ -33,5 +33,23 @@ services:
     stdin_open: true
     tty: true
 
+  web-admin:
+    build: ./web
+    container_name: rust-web-admin
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+    environment:
+      - WEB_PORT=${WEB_PORT:-3000}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-changeme}
+      - RUST_RCON_PORT=${RUST_RCON_PORT:-28016}
+      - RUST_RCON_PASSWORD=${RUST_RCON_PASSWORD}
+      - RUST_CONTAINER_NAME=rust-server
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - rust-server
+
 volumes:
   rust-data:

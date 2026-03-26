@@ -1,0 +1,16 @@
+{
+  "name": "rust-gg-admin",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "elysia": "^1.2.12",
+    "dockerode": "^4.0.4"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.34",
+    "bun-types": "latest"
+  }
+}
