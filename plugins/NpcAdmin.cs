@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NpcAdmin", "rust-gg", "1.0.0")]
+    [Info("NpcAdmin", "rust-gg", "1.1.0")]
     [Description("RCON bridge for HumanNPC — spawn and manage NPCs via console commands")]
     public class NpcAdmin : RustPlugin
     {
@@ -53,14 +53,33 @@ namespace Oxide.Plugins
 
             var rotation = Quaternion.LookRotation(target.transform.position - position);
 
-            var result = HumanNPC.Call("SpawnHumanNPC", position, rotation, npcName, (ulong)0);
+            var result = HumanNPC.Call("CreateNPC", position, rotation, npcName, (ulong)0, true);
             if (result == null)
             {
-                arg.ReplyWith("ERROR: Failed to spawn NPC");
+                arg.ReplyWith("ERROR: Failed to spawn NPC — CreateNPC returned null");
                 return;
             }
 
-            arg.ReplyWith($"OK:{result}");
+            // CreateNPC returns a HumanPlayer component; get the BasePlayer's userID
+            var npcPlayer = (result as MonoBehaviour)?.GetComponent<BasePlayer>();
+            if (npcPlayer == null)
+            {
+                // Fallback: try CreateNPCHook which returns BasePlayer directly
+                var hookResult = HumanNPC.Call("CreateNPCHook", position, rotation, npcName, (ulong)0, true);
+                if (hookResult == null)
+                {
+                    arg.ReplyWith("ERROR: Failed to spawn NPC");
+                    return;
+                }
+                npcPlayer = hookResult as BasePlayer;
+                if (npcPlayer == null)
+                {
+                    arg.ReplyWith("ERROR: Failed to get spawned NPC reference");
+                    return;
+                }
+            }
+
+            arg.ReplyWith($"OK:{npcPlayer.userID}");
         }
 
         [ConsoleCommand("npcadmin.remove")]
@@ -87,7 +106,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            HumanNPC.Call("RemoveHumanNPC", npcId);
+            HumanNPC.Call("RemoveNPC", npcId);
             arg.ReplyWith("OK:removed");
         }
 
@@ -106,7 +125,7 @@ namespace Oxide.Plugins
             var npcs = GetNpcList();
             foreach (var npc in npcs)
             {
-                HumanNPC.Call("RemoveHumanNPC", npc.Id);
+                HumanNPC.Call("RemoveNPC", npc.Id);
                 count++;
             }
 
@@ -152,11 +171,123 @@ namespace Oxide.Plugins
                 return;
             }
 
-            string option = arg.Args[1];
+            // Find the NPC's HumanPlayer component to modify its info
+            var humanPlayer = HumanNPC.Call("FindHumanPlayerByID", npcId);
+            if (humanPlayer == null)
+            {
+                arg.ReplyWith("ERROR: NPC not found");
+                return;
+            }
+
+            string option = arg.Args[1].ToLower();
             string value = string.Join(" ", arg.Args.Skip(2));
 
-            HumanNPC.Call("SetHumanNPCInfo", npcId, option, value);
+            // Access the NPC's BasePlayer to modify properties directly
+            var npcPlayer = (humanPlayer as MonoBehaviour)?.GetComponent<BasePlayer>();
+            if (npcPlayer == null)
+            {
+                arg.ReplyWith("ERROR: Could not access NPC player");
+                return;
+            }
+
+            switch (option)
+            {
+                case "health":
+                    float hp;
+                    if (float.TryParse(value, out hp))
+                    {
+                        npcPlayer.health = hp;
+                        npcPlayer.SendNetworkUpdate();
+                    }
+                    break;
+                case "kit":
+                case "hostile":
+                case "invulnerable":
+                case "invulnerability":
+                case "lootable":
+                case "respawn":
+                case "damageamount":
+                case "speed":
+                case "radius":
+                case "collisionradius":
+                case "defend":
+                case "evade":
+                case "follow":
+                    // These require access to HumanNPCInfo internals
+                    // Try reflection to set the property on the info object
+                    try
+                    {
+                        var infoField = humanPlayer.GetType().GetField("info");
+                        if (infoField != null)
+                        {
+                            var info = infoField.GetValue(humanPlayer);
+                            if (info != null)
+                            {
+                                SetInfoProperty(info, option, value);
+                                // Refresh the NPC to apply changes
+                                HumanNPC.Call("UpdateNPC", npcPlayer, false);
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        arg.ReplyWith($"ERROR: Failed to set {option}");
+                        return;
+                    }
+                    break;
+                default:
+                    arg.ReplyWith($"ERROR: Unknown option '{option}'");
+                    return;
+            }
+
             arg.ReplyWith("OK:updated");
+        }
+
+        private void SetInfoProperty(object info, string option, string value)
+        {
+            var type = info.GetType();
+
+            // Map our option names to HumanNPCInfo field names
+            string fieldName;
+            switch (option)
+            {
+                case "radius":
+                case "collisionradius":
+                    fieldName = "collisionRadius";
+                    break;
+                case "damageamount":
+                    fieldName = "damageAmount";
+                    break;
+                case "invulnerable":
+                    fieldName = "invulnerability";
+                    break;
+                case "respawn":
+                    // respawn value may be "true 60" (bool + seconds)
+                    var parts = value.Split(' ');
+                    var respawnField = type.GetField("respawn");
+                    if (respawnField != null)
+                        respawnField.SetValue(info, bool.Parse(parts[0]));
+                    if (parts.Length > 1)
+                    {
+                        var secondsField = type.GetField("respawnSeconds");
+                        if (secondsField != null)
+                            secondsField.SetValue(info, float.Parse(parts[1]));
+                    }
+                    return;
+                default:
+                    fieldName = option;
+                    break;
+            }
+
+            var field = type.GetField(fieldName);
+            if (field == null) return;
+
+            if (field.FieldType == typeof(float))
+                field.SetValue(info, float.Parse(value));
+            else if (field.FieldType == typeof(bool))
+                field.SetValue(info, bool.Parse(value));
+            else if (field.FieldType == typeof(string))
+                field.SetValue(info, value);
         }
 
         [ConsoleCommand("npcadmin.give")]
@@ -183,10 +314,59 @@ namespace Oxide.Plugins
                 return;
             }
 
-            string item = arg.Args[1];
-            string loc = arg.Args.Length >= 3 ? arg.Args[2] : "belt";
+            string itemShortname = arg.Args[1];
+            string container = arg.Args.Length >= 3 ? arg.Args[2] : "belt";
 
-            HumanNPC.Call("GiveHumanNPC", npcId, item, loc);
+            // Find the NPC
+            var humanPlayer = HumanNPC.Call("FindHumanPlayerByID", npcId);
+            if (humanPlayer == null)
+            {
+                arg.ReplyWith("ERROR: NPC not found");
+                return;
+            }
+
+            var npcPlayer = (humanPlayer as MonoBehaviour)?.GetComponent<BasePlayer>();
+            if (npcPlayer == null)
+            {
+                arg.ReplyWith("ERROR: Could not access NPC player");
+                return;
+            }
+
+            var itemDef = ItemManager.FindItemDefinition(itemShortname);
+            if (itemDef == null)
+            {
+                arg.ReplyWith($"ERROR: Unknown item '{itemShortname}'");
+                return;
+            }
+
+            var item = ItemManager.Create(itemDef);
+            if (item == null)
+            {
+                arg.ReplyWith("ERROR: Failed to create item");
+                return;
+            }
+
+            ItemContainer targetContainer;
+            switch (container.ToLower())
+            {
+                case "wear":
+                    targetContainer = npcPlayer.inventory.containerWear;
+                    break;
+                case "main":
+                    targetContainer = npcPlayer.inventory.containerMain;
+                    break;
+                default:
+                    targetContainer = npcPlayer.inventory.containerBelt;
+                    break;
+            }
+
+            if (!item.MoveToContainer(targetContainer))
+            {
+                item.Remove();
+                arg.ReplyWith("ERROR: Failed to move item to container (full?)");
+                return;
+            }
+
             arg.ReplyWith("OK:given");
         }
 
@@ -210,9 +390,8 @@ namespace Oxide.Plugins
             {
                 if (player.IsNpc && player.UserIDString.Length >= 17)
                 {
-                    // Check if this NPC belongs to HumanNPC by querying its info
-                    var info = HumanNPC?.Call("GetHumanNPCInfo", player.userID);
-                    if (info == null) continue;
+                    var humanPlayer = HumanNPC?.Call("FindHumanPlayerByID", player.userID);
+                    if (humanPlayer == null) continue;
 
                     result.Add(new NpcInfo
                     {
