@@ -6,12 +6,34 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NpcAdmin", "rust-gg", "1.1.0")]
+    [Info("NpcAdmin", "rust-gg", "1.2.0")]
     [Description("RCON bridge for HumanNPC — spawn and manage NPCs via console commands")]
     public class NpcAdmin : RustPlugin
     {
         [PluginReference]
         private Plugin HumanNPC;
+
+        [PluginReference]
+        private Plugin Kits;
+
+        // Track our NPCs since HumanNPC's API methods are unreliable
+        private HashSet<ulong> invulnerableNpcs = new HashSet<ulong>();
+        private HashSet<ulong> spawnedNpcs = new HashSet<ulong>();
+
+        #region Hooks
+
+        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
+        {
+            var player = entity as BasePlayer;
+            if (player == null) return null;
+            if (!invulnerableNpcs.Contains(player.userID)) return null;
+
+            // Block all damage to invulnerable NPCs
+            info.damageTypes.ScaleAll(0f);
+            return true;
+        }
+
+        #endregion
 
         #region Console Commands
 
@@ -68,6 +90,7 @@ namespace Oxide.Plugins
                 return;
             }
 
+            spawnedNpcs.Add(npcPlayer.userID);
             arg.ReplyWith($"OK:{npcPlayer.userID}");
         }
 
@@ -96,6 +119,8 @@ namespace Oxide.Plugins
             }
 
             HumanNPC.Call("RemoveNPC", npcId);
+            spawnedNpcs.Remove(npcId);
+            invulnerableNpcs.Remove(npcId);
             arg.ReplyWith("OK:removed");
         }
 
@@ -115,8 +140,10 @@ namespace Oxide.Plugins
             foreach (var npc in npcs)
             {
                 HumanNPC.Call("RemoveNPC", npc.Id);
+                invulnerableNpcs.Remove(npc.Id);
                 count++;
             }
+            spawnedNpcs.Clear();
 
             arg.ReplyWith($"OK:{count}");
         }
@@ -160,22 +187,13 @@ namespace Oxide.Plugins
                 return;
             }
 
-            // Find the NPC's HumanPlayer component to modify its info
-            var humanPlayer = HumanNPC.Call("FindHumanPlayerByID", npcId);
-            if (humanPlayer == null)
-            {
-                arg.ReplyWith("ERROR: NPC not found");
-                return;
-            }
-
             string option = arg.Args[1].ToLower();
             string value = string.Join(" ", arg.Args.Skip(2));
 
-            // Access the NPC's BasePlayer to modify properties directly
-            var npcPlayer = (humanPlayer as MonoBehaviour)?.GetComponent<BasePlayer>();
+            var npcPlayer = BasePlayer.FindByID(npcId);
             if (npcPlayer == null)
             {
-                arg.ReplyWith("ERROR: Could not access NPC player");
+                arg.ReplyWith("ERROR: NPC not found");
                 return;
             }
 
@@ -186,13 +204,40 @@ namespace Oxide.Plugins
                     if (float.TryParse(value, out hp))
                     {
                         npcPlayer.health = hp;
+                        npcPlayer._maxHealth = hp;
                         npcPlayer.SendNetworkUpdate();
                     }
                     break;
+
                 case "kit":
-                case "hostile":
+                    if (Kits == null)
+                    {
+                        arg.ReplyWith("ERROR: Kits plugin is not loaded");
+                        return;
+                    }
+                    // Strip inventory first, then apply kit
+                    npcPlayer.inventory.Strip();
+                    var kitResult = Kits.Call("GiveKit", npcPlayer, value);
+                    if (kitResult is string errMsg)
+                    {
+                        arg.ReplyWith($"ERROR: Kit failed — {errMsg}");
+                        return;
+                    }
+                    break;
+
                 case "invulnerable":
                 case "invulnerability":
+                    bool invuln;
+                    if (bool.TryParse(value, out invuln))
+                    {
+                        if (invuln)
+                            invulnerableNpcs.Add(npcId);
+                        else
+                            invulnerableNpcs.Remove(npcId);
+                    }
+                    break;
+
+                case "hostile":
                 case "lootable":
                 case "respawn":
                 case "damageamount":
@@ -202,28 +247,37 @@ namespace Oxide.Plugins
                 case "defend":
                 case "evade":
                 case "follow":
-                    // These require access to HumanNPCInfo internals
-                    // Try reflection to set the property on the info object
+                    // Try to find the HumanPlayer component and set via reflection
                     try
                     {
-                        var infoField = humanPlayer.GetType().GetField("info");
-                        if (infoField != null)
+                        var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
+                        if (humanPlayer == null)
                         {
-                            var info = infoField.GetValue(humanPlayer);
-                            if (info != null)
-                            {
-                                SetInfoProperty(info, option, value);
-                                // Refresh the NPC to apply changes
-                                HumanNPC.Call("UpdateNPC", npcPlayer, false);
-                            }
+                            arg.ReplyWith($"ERROR: NPC has no HumanPlayer component — {option} not applied");
+                            return;
                         }
+                        var infoField = humanPlayer.GetType().GetField("info");
+                        if (infoField == null)
+                        {
+                            arg.ReplyWith($"ERROR: Could not find info field on NPC");
+                            return;
+                        }
+                        var info = infoField.GetValue(humanPlayer);
+                        if (info == null)
+                        {
+                            arg.ReplyWith($"ERROR: NPC info object is null");
+                            return;
+                        }
+                        SetInfoProperty(info, option, value);
+                        HumanNPC.Call("UpdateNPC", npcPlayer, false);
                     }
-                    catch
+                    catch (System.Exception ex)
                     {
-                        arg.ReplyWith($"ERROR: Failed to set {option}");
+                        arg.ReplyWith($"ERROR: Failed to set {option} — {ex.Message}");
                         return;
                     }
                     break;
+
                 default:
                     arg.ReplyWith($"ERROR: Unknown option '{option}'");
                     return;
@@ -306,18 +360,10 @@ namespace Oxide.Plugins
             string itemShortname = arg.Args[1];
             string container = arg.Args.Length >= 3 ? arg.Args[2] : "belt";
 
-            // Find the NPC
-            var humanPlayer = HumanNPC.Call("FindHumanPlayerByID", npcId);
-            if (humanPlayer == null)
-            {
-                arg.ReplyWith("ERROR: NPC not found");
-                return;
-            }
-
-            var npcPlayer = (humanPlayer as MonoBehaviour)?.GetComponent<BasePlayer>();
+            var npcPlayer = BasePlayer.FindByID(npcId);
             if (npcPlayer == null)
             {
-                arg.ReplyWith("ERROR: Could not access NPC player");
+                arg.ReplyWith("ERROR: NPC not found");
                 return;
             }
 
@@ -375,24 +421,30 @@ namespace Oxide.Plugins
         {
             var result = new List<NpcInfo>();
 
-            foreach (var player in BaseNetworkable.serverEntities.OfType<BasePlayer>())
+            // Clean up stale IDs and build list from tracked NPCs
+            var stale = new List<ulong>();
+            foreach (var npcId in spawnedNpcs)
             {
-                if (player.IsNpc && player.UserIDString.Length >= 17)
+                var player = BasePlayer.FindByID(npcId);
+                if (player == null || player.IsDead())
                 {
-                    var humanPlayer = HumanNPC?.Call("FindHumanPlayerByID", player.userID);
-                    if (humanPlayer == null) continue;
-
-                    result.Add(new NpcInfo
-                    {
-                        Id = player.userID,
-                        Name = player.displayName ?? "NPC",
-                        X = player.transform.position.x,
-                        Y = player.transform.position.y,
-                        Z = player.transform.position.z,
-                        Health = player.health
-                    });
+                    stale.Add(npcId);
+                    continue;
                 }
+
+                result.Add(new NpcInfo
+                {
+                    Id = player.userID,
+                    Name = player.displayName ?? "NPC",
+                    X = player.transform.position.x,
+                    Y = player.transform.position.y,
+                    Z = player.transform.position.z,
+                    Health = player.health
+                });
             }
+
+            foreach (var id in stale)
+                spawnedNpcs.Remove(id);
 
             return result;
         }
