@@ -46,6 +46,7 @@ namespace Oxide.Plugins
             public string Kit;
             public bool Invulnerable;
             public bool Hostile;
+            public bool Online;
         }
 
         #endregion
@@ -638,39 +639,41 @@ namespace Oxide.Plugins
         {
             var result = new List<NpcInfo>();
 
-            var stale = new List<ulong>();
             foreach (var npcId in spawnedNpcs)
             {
                 var player = BasePlayer.FindByID(npcId);
-                if (player == null || player.IsDead())
-                {
-                    stale.Add(npcId);
-                    continue;
-                }
-
                 NpcDbRecord record = null;
-                _npcRecords.TryGetValue(player.userID, out record);
+                _npcRecords.TryGetValue(npcId, out record);
 
-                result.Add(new NpcInfo
+                if (player != null && !player.IsDead())
                 {
-                    Id = player.userID,
-                    Name = player.displayName ?? "NPC",
-                    X = player.transform.position.x,
-                    Y = player.transform.position.y,
-                    Z = player.transform.position.z,
-                    Health = player.health,
-                    Kit = record?.Kit,
-                    Invulnerable = invulnerableNpcs.Contains(player.userID),
-                    Hostile = record != null ? record.Hostile : false
-                });
-            }
-
-            foreach (var id in stale)
-            {
-                spawnedNpcs.Remove(id);
-                invulnerableNpcs.Remove(id);
-                _npcRecords.Remove(id);
-                DeleteNpcFromDb(id);
+                    result.Add(new NpcInfo
+                    {
+                        Id = player.userID,
+                        Name = player.displayName ?? "NPC",
+                        X = player.transform.position.x,
+                        Y = player.transform.position.y,
+                        Z = player.transform.position.z,
+                        Health = player.health,
+                        Kit = record?.Kit,
+                        Invulnerable = invulnerableNpcs.Contains(player.userID),
+                        Hostile = record != null ? record.Hostile : false,
+                        Online = true
+                    });
+                }
+                else if (record != null)
+                {
+                    result.Add(new NpcInfo
+                    {
+                        Id = npcId,
+                        Name = record.Name ?? "NPC",
+                        Health = record.Health,
+                        Kit = record.Kit,
+                        Invulnerable = record.Invulnerable,
+                        Hostile = record.Hostile,
+                        Online = false
+                    });
+                }
             }
 
             return result;

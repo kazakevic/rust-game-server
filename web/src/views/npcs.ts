@@ -161,17 +161,20 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
           }
           npcListEl.innerHTML = '<div class="divide-y divide-zinc-100">' +
             npcs.map(npc =>
-              '<div class="flex items-center justify-between py-3">' +
+              '<div class="flex items-center justify-between py-3' + (npc.Online ? '' : ' opacity-60') + '">' +
                 '<div class="flex items-center gap-3">' +
-                  '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 text-xs font-mono">' + String(npc.Id).slice(-4) + '</div>' +
+                  '<div class="flex items-center justify-center w-8 h-8 rounded-full ' + (npc.Online ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-50 text-zinc-400') + ' text-xs font-mono">' + String(npc.Id).slice(-4) + '</div>' +
                   '<div>' +
                     '<p class="text-sm font-medium text-zinc-900">' + escapeHtml(npc.Name) +
+                      (npc.Online
+                        ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">Online</span>'
+                        : ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 border border-zinc-200">Offline</span>') +
                       (npc.Invulnerable ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Invulnerable</span>' : '') +
                       (npc.Hostile ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200">Hostile</span>' : '') +
                     '</p>' +
                     '<p class="text-xs text-zinc-400">ID: ' + npc.Id + ' &middot; HP: ' + Math.round(npc.Health) +
                       (npc.Kit ? ' &middot; Kit: ' + escapeHtml(npc.Kit) : '') +
-                      ' &middot; Pos: ' + Math.round(npc.X) + ', ' + Math.round(npc.Y) + ', ' + Math.round(npc.Z) +
+                      (npc.Online ? ' &middot; Pos: ' + Math.round(npc.X) + ', ' + Math.round(npc.Y) + ', ' + Math.round(npc.Z) : '') +
                     '</p>' +
                   '</div>' +
                 '</div>' +
