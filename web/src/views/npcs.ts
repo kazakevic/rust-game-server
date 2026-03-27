@@ -217,10 +217,13 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
           const res = await rcon('npcadmin.spawn ' + steamId + ' "' + name.replace(/"/g, '') + '"');
           if (res.startsWith('ERROR')) throw new Error(res.replace('ERROR: ', ''));
 
-          const npcId = res.replace('OK:', '');
+          // Extract numeric NPC ID from response like "OK:[Human NPC] Spawned NPC: 10862357504"
+          const idMatch = res.match(/(\d{5,})/);
+          if (!idMatch) throw new Error('Could not parse NPC ID from: ' + res);
+          const npcId = idMatch[1];
 
           // Wait for HumanNPC to finish component setup
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 1500));
 
           // Apply settings
           const settings = [];
