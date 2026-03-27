@@ -1,16 +1,28 @@
 import { layout } from "./layout";
-import { pageHeader, section, input, select, checkbox, button, alert } from "./components";
+import { pageHeader, section, input, textarea, select, checkbox, button, alert } from "./components";
 
 export interface ServerSettings {
   serverName: string;
   serverIdentity: string;
+  serverDescription: string;
+  serverUrl: string;
+  serverHeaderImage: string;
+  serverLogoImage: string;
+  serverTags: string;
   mapSeed: number;
   worldSize: number;
   maxPlayers: number;
+  saveInterval: number;
   serverPort: number;
   queryPort: number;
   rconPort: number;
   appPort: number;
+  tickrate: number;
+  globalChat: boolean;
+  stability: boolean;
+  radiation: boolean;
+  idleKick: number;
+  idleKickMode: string;
   updateOnStart: boolean;
   umodEnabled: boolean;
   serverMode: string;
@@ -35,6 +47,18 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
           ${input({ name: "serverIdentity", label: "Server Identity", value: s?.serverIdentity ?? "", hint: "Changing this creates a new world save folder." })}
         </div>
       `)}
+
+      ${section("Server Branding", `
+        <div class="space-y-4">
+          ${textarea({ name: "serverDescription", label: "Server Description", value: s?.serverDescription ?? "", placeholder: "Welcome to our server!\\nWipe: Weekly on Thursdays\\nRules: No cheating", rows: 4, hint: "Shown on the server info page. Use \\\\n for line breaks." })}
+          ${input({ name: "serverUrl", label: "Website URL", value: s?.serverUrl ?? "", placeholder: "https://yoursite.com", hint: "Displayed as the \"Webpage\" link on the server info page." })}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${input({ name: "serverHeaderImage", label: "Header Image URL", value: s?.serverHeaderImage ?? "", placeholder: "https://i.imgur.com/example.png", hint: "Banner image: 1024\u00d7512 px recommended. Direct .jpg/.png URL." })}
+            ${input({ name: "serverLogoImage", label: "Logo Image URL", value: s?.serverLogoImage ?? "", placeholder: "https://i.imgur.com/example.png", hint: "Server icon: 256\u00d7256 px. Displayed as circle in browser & Rust+." })}
+          </div>
+          ${input({ name: "serverTags", label: "Server Tags", value: s?.serverTags ?? "", placeholder: "weekly,vanilla", hint: "Comma-separated. Wipe: monthly/biweekly/weekly. Type: vanilla/pve/roleplay/creative/minigame/battlefield. Mod: modded/oxide/carbon." })}
+        </div>
+      `, { description: "Customize how your server appears in the server browser." })}
 
       ${section("World", `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -75,6 +99,31 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
           </div>
         </div>
       `)}
+
+      ${section("Gameplay", `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          ${input({ name: "saveInterval", label: "Auto-Save Interval", type: "number", value: String(s?.saveInterval ?? 600), hint: "Seconds between saves (default 600)" })}
+          ${input({ name: "tickrate", label: "Server Tickrate", type: "number", value: String(s?.tickrate ?? 30), hint: "Updates per second (max 30)" })}
+          ${input({ name: "idleKick", label: "Idle Kick (minutes)", type: "number", value: String(s?.idleKick ?? 30), hint: "0 = disabled" })}
+        </div>
+        <div class="mt-4 max-w-sm">
+          <label class="block text-sm font-medium text-zinc-700 mb-1.5">Idle Kick Mode</label>
+          ${select({
+            name: "idleKickMode",
+            items: [
+              { value: "0", label: "Disabled", selected: String(s?.idleKickMode) === "0" },
+              { value: "1", label: "When server is full", selected: String(s?.idleKickMode ?? "1") === "1" },
+              { value: "2", label: "Always", selected: String(s?.idleKickMode) === "2" },
+            ],
+            class: "w-full",
+          })}
+        </div>
+        <div class="mt-4 space-y-3">
+          ${checkbox({ name: "globalChat", label: "Global chat (all players see messages)", checked: s?.globalChat ?? true })}
+          ${checkbox({ name: "stability", label: "Building stability system", checked: s?.stability ?? true })}
+          ${checkbox({ name: "radiation", label: "Radiation zones enabled", checked: s?.radiation ?? true })}
+        </div>
+      `, { description: "In-game behavior and performance settings." })}
 
       ${section("Network", `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

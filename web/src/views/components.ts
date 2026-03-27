@@ -146,6 +146,27 @@ export function input(opts: {
   </div>`;
 }
 
+// ─── Textarea ──────────────────────────────────────────────────────────────
+
+export function textarea(opts: {
+  name: string;
+  label?: string;
+  value?: string;
+  placeholder?: string;
+  rows?: number;
+  required?: boolean;
+  class?: string;
+  hint?: string;
+}): string {
+  const reqAttr = opts.required ? " required" : "";
+  return `<div class="${opts.class || ""}">
+    ${opts.label ? `<label class="block text-sm font-medium text-zinc-700 mb-1.5">${opts.label}</label>` : ""}
+    <textarea name="${opts.name}" rows="${opts.rows || 3}" placeholder="${opts.placeholder || ""}"
+              class="flex w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm transition-colors placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50"${reqAttr}>${escapeHtml(String(opts.value ?? ""))}</textarea>
+    ${opts.hint ? `<p class="mt-1 text-xs text-zinc-400">${opts.hint}</p>` : ""}
+  </div>`;
+}
+
 // ─── Checkbox ───────────────────────────────────────────────────────────────
 
 export function checkbox(opts: {

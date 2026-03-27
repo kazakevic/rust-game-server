@@ -345,13 +345,25 @@ const app = new Elysia()
         settings = {
           serverName: process.env.RUST_SERVER_NAME || "Rust Server",
           serverIdentity: process.env.RUST_SERVER_IDENTITY || "docker",
+          serverDescription: process.env.RUST_SERVER_DESCRIPTION || "",
+          serverUrl: process.env.RUST_SERVER_URL || "",
+          serverHeaderImage: process.env.RUST_SERVER_HEADERIMAGE || "",
+          serverLogoImage: process.env.RUST_SERVER_LOGOIMAGE || "",
+          serverTags: process.env.RUST_SERVER_TAGS || "",
           mapSeed: parseInt(process.env.RUST_SERVER_SEED || "12345"),
           worldSize: parseInt(process.env.RUST_SERVER_WORLDSIZE || "3500"),
           maxPlayers: parseInt(process.env.RUST_SERVER_MAXPLAYERS || "100"),
+          saveInterval: 600,
           serverPort: parseInt(process.env.RUST_SERVER_PORT || "28015"),
           queryPort: parseInt(process.env.RUST_SERVER_QUERYPORT || "28017"),
           rconPort: parseInt(process.env.RUST_RCON_PORT || "28016"),
           appPort: parseInt(process.env.RUST_APP_PORT || "28082"),
+          tickrate: 30,
+          globalChat: true,
+          stability: true,
+          radiation: true,
+          idleKick: 30,
+          idleKickMode: "1",
           updateOnStart: process.env.RUST_UPDATE_ON_START !== "0",
           umodEnabled: process.env.UMOD_ENABLED !== "0",
           serverMode: "vanilla",
@@ -360,10 +372,13 @@ const app = new Elysia()
     } catch (e: any) {
       error = "Failed to load settings: " + e.message;
       settings = {
-        serverName: "Rust Server", serverIdentity: "docker", mapSeed: 12345,
-        worldSize: 3500, maxPlayers: 100, serverPort: 28015, queryPort: 28017,
-        rconPort: 28016, appPort: 28082, updateOnStart: true, umodEnabled: true,
-        serverMode: "vanilla",
+        serverName: "Rust Server", serverIdentity: "docker",
+        serverDescription: "", serverUrl: "", serverHeaderImage: "", serverLogoImage: "", serverTags: "",
+        mapSeed: 12345, worldSize: 3500, maxPlayers: 100, saveInterval: 600,
+        serverPort: 28015, queryPort: 28017, rconPort: 28016, appPort: 28082,
+        tickrate: 30, globalChat: true, stability: true, radiation: true,
+        idleKick: 30, idleKickMode: "1",
+        updateOnStart: true, umodEnabled: true, serverMode: "vanilla",
       };
     }
 
@@ -382,13 +397,25 @@ const app = new Elysia()
       const settings: ServerSettings = {
         serverName: form.serverName || "Rust Server",
         serverIdentity: form.serverIdentity || "docker",
+        serverDescription: form.serverDescription || "",
+        serverUrl: form.serverUrl || "",
+        serverHeaderImage: form.serverHeaderImage || "",
+        serverLogoImage: form.serverLogoImage || "",
+        serverTags: form.serverTags || "",
         mapSeed: parseInt(form.mapSeed) || 12345,
         worldSize: parseInt(form.worldSize) || 3500,
         maxPlayers: parseInt(form.maxPlayers) || 100,
+        saveInterval: parseInt(form.saveInterval) || 600,
         serverPort: parseInt(form.serverPort) || 28015,
         queryPort: parseInt(form.queryPort) || 28017,
         rconPort: parseInt(form.rconPort) || 28016,
         appPort: parseInt(form.appPort) || 28082,
+        tickrate: parseInt(form.tickrate) || 30,
+        globalChat: String(form.globalChat).includes("true"),
+        stability: String(form.stability).includes("true"),
+        radiation: String(form.radiation).includes("true"),
+        idleKick: parseInt(form.idleKick) || 30,
+        idleKickMode: form.idleKickMode || "1",
         updateOnStart: String(form.updateOnStart).includes("true"),
         umodEnabled: String(form.umodEnabled).includes("true"),
         serverMode: form.serverMode || "vanilla",
@@ -402,37 +429,58 @@ const app = new Elysia()
       let cfgContent = "";
       try { cfgContent = readFileSync(cfgPath, "utf-8"); } catch {}
 
-      // Strip existing mode-related lines
-      const modeKeys = ["server.pve", "server.gamemode", "craft.instant", "decay.scale"];
+      // Strip existing managed lines
+      const managedKeys = [
+        "server.pve", "server.gamemode", "craft.instant", "decay.scale",
+        "server.description", "server.url", "server.headerimage", "server.logoimage", "server.tags",
+        "server.saveinterval", "server.tickrate", "server.globalchat", "server.stability",
+        "server.radiation", "server.idlekick", "server.idlekickmode",
+      ];
       const lines = cfgContent.split("\n").filter(l => {
         const trimmed = l.trim().toLowerCase();
-        return !modeKeys.some(k => trimmed.startsWith(k));
+        return !managedKeys.some(k => trimmed.startsWith(k));
       });
 
+      // Add branding lines
+      const cfgLines: string[] = [];
+      if (settings.serverDescription) cfgLines.push(`server.description "${settings.serverDescription}"`);
+      if (settings.serverUrl) cfgLines.push(`server.url "${settings.serverUrl}"`);
+      if (settings.serverHeaderImage) cfgLines.push(`server.headerimage "${settings.serverHeaderImage}"`);
+      if (settings.serverLogoImage) cfgLines.push(`server.logoimage "${settings.serverLogoImage}"`);
+      if (settings.serverTags) cfgLines.push(`server.tags "${settings.serverTags}"`);
+
+      // Add gameplay lines
+      cfgLines.push(`server.saveinterval ${settings.saveInterval}`);
+      cfgLines.push(`server.tickrate ${settings.tickrate}`);
+      cfgLines.push(`server.globalchat ${settings.globalChat}`);
+      cfgLines.push(`server.stability ${settings.stability}`);
+      cfgLines.push(`server.radiation ${settings.radiation}`);
+      cfgLines.push(`server.idlekick ${settings.idleKick}`);
+      cfgLines.push(`server.idlekickmode ${settings.idleKickMode}`);
+
       // Add mode-specific lines
-      const modeLines: string[] = [];
       switch (settings.serverMode) {
         case "pve":
-          modeLines.push("server.pve true");
+          cfgLines.push("server.pve true");
           break;
         case "softcore":
-          modeLines.push("server.pve false");
-          modeLines.push("server.gamemode softcore");
+          cfgLines.push("server.pve false");
+          cfgLines.push("server.gamemode softcore");
           break;
         case "creative":
-          modeLines.push("server.pve true");
-          modeLines.push("craft.instant true");
-          modeLines.push("decay.scale 0");
+          cfgLines.push("server.pve true");
+          cfgLines.push("craft.instant true");
+          cfgLines.push("decay.scale 0");
           break;
         case "gungame":
-          modeLines.push("server.pve false");
+          cfgLines.push("server.pve false");
           break;
         default: // vanilla
-          modeLines.push("server.pve false");
+          cfgLines.push("server.pve false");
           break;
       }
 
-      const finalCfg = lines.filter(l => l.trim()).concat(modeLines).join("\n") + "\n";
+      const finalCfg = lines.filter(l => l.trim()).concat(cfgLines).join("\n") + "\n";
       writeFileSync(cfgPath, finalCfg, "utf-8");
 
       return new Response(null, { status: 302, headers: { Location: "/server/settings?saved=1" } });
