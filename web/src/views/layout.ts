@@ -9,6 +9,44 @@ export function layout(title: string, content: string, opts?: { activePage?: str
     return `<a href="${href}" class="text-sm transition-colors ${cls}">${label}</a>`;
   }
 
+  function dropdownLink(href: string, label: string, page: string) {
+    const isActive = active === page;
+    const cls = isActive
+      ? "bg-zinc-100 text-zinc-900 font-medium"
+      : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900";
+    return `<a href="${href}" class="block px-3 py-1.5 text-sm rounded-md transition-colors ${cls}">${label}</a>`;
+  }
+
+  function navDropdown(label: string, pages: string[], items: string) {
+    const isActive = pages.includes(active);
+    const triggerCls = isActive
+      ? "text-zinc-900 font-medium"
+      : "text-zinc-500 hover:text-zinc-900";
+    return `<div class="relative group">
+      <button class="text-sm transition-colors cursor-pointer flex items-center gap-1 ${triggerCls}">
+        ${label}
+        <svg class="w-3.5 h-3.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+      <div class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-150 absolute top-full left-0 pt-1">
+        <div class="bg-white border border-zinc-200 rounded-lg shadow-lg py-1.5 px-1.5 min-w-[160px]">
+          ${items}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const serverDropdown = navDropdown("Server", ["rcon", "logs", "configs"], `
+    ${dropdownLink("/rcon", "Console", "rcon")}
+    ${dropdownLink("/logs", "Logs", "logs")}
+    ${dropdownLink("/configs", "Config Files", "configs")}
+  `);
+
+  const pluginsDropdown = navDropdown("Plugins", ["npcs", "config", "stacksize"], `
+    ${dropdownLink("/npcs", "NPC Manager", "npcs")}
+    ${dropdownLink("/config/gungame", "GunGame", "config")}
+    ${dropdownLink("/config/stacksize", "Stack Sizes", "stacksize")}
+  `);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -42,12 +80,8 @@ export function layout(title: string, content: string, opts?: { activePage?: str
         <a href="/dashboard" class="text-base font-bold tracking-tight text-zinc-900">Rust<span class="text-accent">GG</span></a>
         <div class="flex items-center gap-5">
           ${navLink("/dashboard", "Dashboard", "dashboard")}
-          ${navLink("/rcon", "Console", "rcon")}
-          ${navLink("/logs", "Logs", "logs")}
-          ${navLink("/npcs", "NPCs", "npcs")}
-          ${navLink("/config/gungame", "GunGame", "config")}
-          ${navLink("/config/stacksize", "Stacks", "stacksize")}
-          ${navLink("/configs", "Server Configs", "configs")}
+          ${serverDropdown}
+          ${pluginsDropdown}
         </div>
       </div>
       <form method="POST" action="/logout">
