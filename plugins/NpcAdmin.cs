@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Database;
 using Oxide.Core.Plugins;
@@ -9,8 +10,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NpcAdmin", "rust-gg", "2.0.0")]
-    [Description("RCON bridge for HumanNPC — spawn and manage NPCs via console commands with SQLite persistence")]
+    [Info("NpcAdmin", "rust-gg", "3.0.0")]
+    [Description("Web-driven NPC manager — reads commands from shared SQLite, no RCON needed")]
     public class NpcAdmin : RustPlugin
     {
         [PluginReference]
@@ -21,45 +22,26 @@ namespace Oxide.Plugins
 
         private HashSet<ulong> invulnerableNpcs = new HashSet<ulong>();
         private HashSet<ulong> spawnedNpcs = new HashSet<ulong>();
-        private Dictionary<ulong, NpcDbRecord> _npcRecords = new Dictionary<ulong, NpcDbRecord>();
 
         private readonly Core.SQLite.Libraries.SQLite _sqlite = Interface.Oxide.GetLibrary<Core.SQLite.Libraries.SQLite>();
         private Connection _db;
 
-        #region Data Classes
-
-        private class NpcDbRecord
-        {
-            public string Name;
-            public string Kit;
-            public bool Invulnerable;
-            public bool Hostile;
-            public float Health;
-        }
-
-        private class NpcInfo
-        {
-            public ulong Id;
-            public string Name;
-            public float X, Y, Z;
-            public float Health;
-            public string Kit;
-            public bool Invulnerable;
-            public bool Hostile;
-            public bool Online;
-        }
-
-        #endregion
+        private Timer _pollTimer;
+        private Timer _posTimer;
 
         #region Hooks
 
-        private void Loaded()
+        private void OnServerInitialized()
         {
             OpenDatabase();
+            _pollTimer = timer.Every(2f, PollCommands);
+            _posTimer = timer.Every(10f, UpdatePositions);
         }
 
         private void Unload()
         {
+            _pollTimer?.Destroy();
+            _posTimer?.Destroy();
             CloseDatabase();
         }
 
@@ -86,19 +68,71 @@ namespace Oxide.Plugins
                 return;
             }
 
-            string createTable = @"
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append("PRAGMA journal_mode=WAL;"), _db);
+
+            string createNpcs = @"
                 CREATE TABLE IF NOT EXISTS spawned_npcs (
                     npc_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL DEFAULT 'NPC',
-                    kit TEXT,
-                    invulnerable INTEGER NOT NULL DEFAULT 0,
-                    hostile INTEGER NOT NULL DEFAULT 0,
                     health REAL NOT NULL DEFAULT 100,
+                    kit TEXT,
+                    hostile INTEGER NOT NULL DEFAULT 0,
+                    invulnerable INTEGER NOT NULL DEFAULT 0,
+                    lootable INTEGER NOT NULL DEFAULT 1,
+                    damage REAL NOT NULL DEFAULT 10,
+                    speed REAL NOT NULL DEFAULT 3,
+                    detect_radius REAL NOT NULL DEFAULT 30,
+                    respawn INTEGER NOT NULL DEFAULT 0,
+                    respawn_delay INTEGER NOT NULL DEFAULT 60,
+                    pos_x REAL,
+                    pos_y REAL,
+                    pos_z REAL,
+                    status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );";
 
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append(createTable), _db);
+            string createCommands = @"
+                CREATE TABLE IF NOT EXISTS npc_commands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    result TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    processed_at TEXT
+                );";
+
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append(createNpcs), _db);
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append(createCommands), _db);
+
+            // Migrate: drop old spawned_npcs if schema doesn't match (missing columns)
+            MigrateSchema();
+
             LoadNpcsFromDb();
+        }
+
+        private void MigrateSchema()
+        {
+            // Add missing columns if upgrading from v2
+            string[] migrations = new string[]
+            {
+                "ALTER TABLE spawned_npcs ADD COLUMN lootable INTEGER NOT NULL DEFAULT 1;",
+                "ALTER TABLE spawned_npcs ADD COLUMN damage REAL NOT NULL DEFAULT 10;",
+                "ALTER TABLE spawned_npcs ADD COLUMN speed REAL NOT NULL DEFAULT 3;",
+                "ALTER TABLE spawned_npcs ADD COLUMN detect_radius REAL NOT NULL DEFAULT 30;",
+                "ALTER TABLE spawned_npcs ADD COLUMN respawn INTEGER NOT NULL DEFAULT 0;",
+                "ALTER TABLE spawned_npcs ADD COLUMN respawn_delay INTEGER NOT NULL DEFAULT 60;",
+                "ALTER TABLE spawned_npcs ADD COLUMN pos_x REAL;",
+                "ALTER TABLE spawned_npcs ADD COLUMN pos_y REAL;",
+                "ALTER TABLE spawned_npcs ADD COLUMN pos_z REAL;",
+                "ALTER TABLE spawned_npcs ADD COLUMN status TEXT NOT NULL DEFAULT 'alive';",
+            };
+
+            foreach (var sql in migrations)
+            {
+                try { _sqlite.ExecuteNonQuery(Sql.Builder.Append(sql), _db); }
+                catch { /* column already exists */ }
+            }
         }
 
         private void CloseDatabase()
@@ -109,7 +143,7 @@ namespace Oxide.Plugins
 
         private void LoadNpcsFromDb()
         {
-            string query = "SELECT npc_id, name, kit, invulnerable, hostile, health FROM spawned_npcs;";
+            string query = "SELECT npc_id, invulnerable FROM spawned_npcs WHERE status IN ('alive', 'pending');";
             _sqlite.Query(Sql.Builder.Append(query), _db, results =>
             {
                 if (results == null) return;
@@ -122,609 +156,537 @@ namespace Oxide.Plugins
                     spawnedNpcs.Add(npcId);
                     if (invuln)
                         invulnerableNpcs.Add(npcId);
-
-                    _npcRecords[npcId] = new NpcDbRecord
-                    {
-                        Name = row["name"].ToString(),
-                        Kit = row["kit"]?.ToString(),
-                        Invulnerable = invuln,
-                        Hostile = Convert.ToInt32(row["hostile"]) == 1,
-                        Health = Convert.ToSingle(row["health"])
-                    };
                 }
 
-                Puts($"Loaded {_npcRecords.Count} NPC records from database.");
+                Puts($"Loaded {spawnedNpcs.Count} NPCs from database.");
             });
-        }
-
-        private void SaveNpcToDb(ulong npcId, string name, string kit, bool invulnerable, bool hostile, float health)
-        {
-            string upsert = @"
-                INSERT INTO spawned_npcs (npc_id, name, kit, invulnerable, hostile, health, created_at)
-                VALUES (@0, @1, @2, @3, @4, @5, datetime('now'))
-                ON CONFLICT(npc_id) DO UPDATE SET
-                    name = @1,
-                    kit = @2,
-                    invulnerable = @3,
-                    hostile = @4,
-                    health = @5;";
-
-            _sqlite.ExecuteNonQuery(
-                Sql.Builder.Append(upsert,
-                    npcId.ToString(),
-                    name,
-                    kit ?? "",
-                    invulnerable ? 1 : 0,
-                    hostile ? 1 : 0,
-                    health),
-                _db);
-        }
-
-        private void UpdateNpcFieldInDb(ulong npcId, string field, object value)
-        {
-            string sql = $"UPDATE spawned_npcs SET {field} = @0 WHERE npc_id = @1;";
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append(sql, value, npcId.ToString()), _db);
-        }
-
-        private void DeleteNpcFromDb(ulong npcId)
-        {
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append("DELETE FROM spawned_npcs WHERE npc_id = @0;", npcId.ToString()), _db);
-        }
-
-        private void DeleteAllNpcsFromDb()
-        {
-            _sqlite.ExecuteNonQuery(Sql.Builder.Append("DELETE FROM spawned_npcs;"), _db);
         }
 
         #endregion
 
-        #region Console Commands
+        #region Command Queue
 
-        [ConsoleCommand("npcadmin.spawn")]
-        private void CmdSpawn(ConsoleSystem.Arg arg)
+        private void PollCommands()
         {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
+            if (_db == null) return;
 
-            if (arg.Args == null || arg.Args.Length < 1)
+            string query = "SELECT id, action, payload FROM npc_commands WHERE status = 'pending' ORDER BY id ASC LIMIT 5;";
+            _sqlite.Query(Sql.Builder.Append(query), _db, results =>
             {
-                arg.ReplyWith("Usage: npcadmin.spawn <steamid> [\"NPC Name\"]");
-                return;
-            }
+                if (results == null || results.Count == 0) return;
 
+                foreach (var row in results)
+                {
+                    int cmdId = Convert.ToInt32(row["id"]);
+                    string action = row["action"].ToString();
+                    string payload = row["payload"]?.ToString() ?? "{}";
+
+                    // Mark as processing
+                    _sqlite.ExecuteNonQuery(
+                        Sql.Builder.Append("UPDATE npc_commands SET status = 'processing' WHERE id = @0;", cmdId), _db);
+
+                    try
+                    {
+                        ProcessCommand(cmdId, action, payload);
+                    }
+                    catch (Exception ex)
+                    {
+                        CompleteCommand(cmdId, "failed", ex.Message);
+                        PrintError($"Command {cmdId} ({action}) failed: {ex.Message}");
+                    }
+                }
+            });
+        }
+
+        private void ProcessCommand(int cmdId, string action, string payload)
+        {
+            var data = JObject.Parse(payload);
+
+            switch (action)
+            {
+                case "spawn":
+                    HandleSpawn(cmdId, data);
+                    break;
+                case "remove":
+                    HandleRemove(cmdId, data);
+                    break;
+                case "remove_all":
+                    HandleRemoveAll(cmdId);
+                    break;
+                case "update":
+                    HandleUpdate(cmdId, data);
+                    break;
+                default:
+                    CompleteCommand(cmdId, "failed", $"Unknown action: {action}");
+                    break;
+            }
+        }
+
+        private void CompleteCommand(int cmdId, string status, string result)
+        {
+            _sqlite.ExecuteNonQuery(
+                Sql.Builder.Append(
+                    "UPDATE npc_commands SET status = @0, result = @1, processed_at = datetime('now') WHERE id = @2;",
+                    status, result, cmdId),
+                _db);
+        }
+
+        #endregion
+
+        #region Command Handlers
+
+        private void HandleSpawn(int cmdId, JObject data)
+        {
             if (HumanNPC == null)
             {
-                arg.ReplyWith("ERROR: HumanNPC plugin is not loaded");
+                CompleteCommand(cmdId, "failed", "HumanNPC plugin is not loaded");
                 return;
             }
 
+            string steamIdStr = data.Value<string>("steamId") ?? "";
             ulong steamId;
-            if (!ulong.TryParse(arg.Args[0], out steamId))
+            if (!ulong.TryParse(steamIdStr, out steamId))
             {
-                arg.ReplyWith("ERROR: Invalid Steam ID");
+                CompleteCommand(cmdId, "failed", "Invalid Steam ID");
                 return;
             }
 
             var target = BasePlayer.FindByID(steamId);
             if (target == null)
             {
-                arg.ReplyWith("ERROR: Player not found or not online");
+                CompleteCommand(cmdId, "failed", "Player not found or not online");
                 return;
             }
 
-            string npcName = arg.Args.Length >= 2 ? arg.Args[1] : "NPC";
+            string npcName = data.Value<string>("name") ?? "NPC";
+            float health = data.Value<float?>("health") ?? 100f;
+            string kit = data.Value<string>("kit");
+            bool hostile = data.Value<bool?>("hostile") ?? false;
+            bool invulnerable = data.Value<bool?>("invulnerable") ?? false;
+            bool lootable = data.Value<bool?>("lootable") ?? true;
+            float damage = data.Value<float?>("damage") ?? 10f;
+            float speed = data.Value<float?>("speed") ?? 3f;
+            float detectRadius = data.Value<float?>("detectRadius") ?? 30f;
+            bool respawn = data.Value<bool?>("respawn") ?? false;
+            int respawnDelay = data.Value<int?>("respawnDelay") ?? 60;
 
             var position = target.transform.position + target.eyes.BodyForward() * 3f;
             position.y = TerrainMeta.HeightMap.GetHeight(position);
-
             var rotation = Quaternion.LookRotation(target.transform.position - position);
 
             var result = HumanNPC.Call("CreateNPCHook", position, rotation, npcName, (ulong)0, true);
             if (result == null)
             {
-                arg.ReplyWith("ERROR: CreateNPCHook returned null — check HumanNPC plugin logs");
+                CompleteCommand(cmdId, "failed", "CreateNPCHook returned null");
                 return;
             }
 
             var npcPlayer = result as BasePlayer;
             if (npcPlayer == null)
             {
-                arg.ReplyWith($"ERROR: Unexpected return type: {result.GetType().Name}");
+                CompleteCommand(cmdId, "failed", $"Unexpected return type: {result.GetType().Name}");
                 return;
             }
 
-            Puts($"[Spawn] NPC created: {npcPlayer.userID} name={npcName} pos={position}");
+            ulong npcId = npcPlayer.userID;
+            spawnedNpcs.Add(npcId);
 
-            spawnedNpcs.Add(npcPlayer.userID);
-            _npcRecords[npcPlayer.userID] = new NpcDbRecord
-            {
-                Name = npcName,
-                Kit = null,
-                Invulnerable = false,
-                Hostile = false,
-                Health = 100f
-            };
-            SaveNpcToDb(npcPlayer.userID, npcName, null, false, false, 100f);
+            if (invulnerable)
+                invulnerableNpcs.Add(npcId);
 
-            // Delay so HumanNPC finishes component setup in NextTick
-            var npcId = npcPlayer.userID;
-            timer.Once(0.5f, () =>
-            {
-                var npc = BasePlayer.FindByID(npcId);
-                if (npc == null)
-                {
-                    Puts($"[Spawn] Timer: NPC {npcId} not found after 0.5s");
-                    return;
-                }
-                var hp = npc.GetComponent("HumanPlayer");
-                Puts($"[Spawn] Timer: NPC {npcId} HumanPlayer component = {(hp != null ? "found" : "NULL")}");
-                SetHumanNpcInvulnerability(npc, false);
-            });
+            // Save to DB immediately
+            string upsert = @"
+                INSERT INTO spawned_npcs (npc_id, name, health, kit, hostile, invulnerable, lootable, damage, speed, detect_radius, respawn, respawn_delay, pos_x, pos_y, pos_z, status)
+                VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12, @13, @14, 'alive')
+                ON CONFLICT(npc_id) DO UPDATE SET
+                    name=@1, health=@2, kit=@3, hostile=@4, invulnerable=@5, lootable=@6,
+                    damage=@7, speed=@8, detect_radius=@9, respawn=@10, respawn_delay=@11,
+                    pos_x=@12, pos_y=@13, pos_z=@14, status='alive';";
 
-            arg.ReplyWith($"OK:{npcPlayer.userID}");
+            _sqlite.ExecuteNonQuery(
+                Sql.Builder.Append(upsert,
+                    npcId.ToString(), npcName, health, kit ?? "",
+                    hostile ? 1 : 0, invulnerable ? 1 : 0, lootable ? 1 : 0,
+                    damage, speed, detectRadius,
+                    respawn ? 1 : 0, respawnDelay,
+                    position.x, position.y, position.z),
+                _db);
+
+            Puts($"[Spawn] NPC created: {npcId} name={npcName}");
+
+            // Wait for HumanPlayer component to initialize, then apply all settings
+            ApplySettingsWhenReady(npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay);
         }
 
-        [ConsoleCommand("npcadmin.remove")]
-        private void CmdRemove(ConsoleSystem.Arg arg)
+        private void ApplySettingsWhenReady(ulong npcId, int cmdId, float health, string kit,
+            bool hostile, bool invulnerable, bool lootable, float damage, float speed,
+            float detectRadius, bool respawn, int respawnDelay, int retries = 10)
         {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
-
-            if (arg.Args == null || arg.Args.Length < 1)
+            timer.Once(0.5f, () =>
             {
-                arg.ReplyWith("Usage: npcadmin.remove <npcid>");
-                return;
-            }
+                var npcPlayer = BasePlayer.FindByID(npcId);
+                if (npcPlayer == null)
+                {
+                    if (retries > 0)
+                    {
+                        ApplySettingsWhenReady(npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
+                        return;
+                    }
+                    CompleteCommand(cmdId, "failed", "NPC disappeared before settings could be applied");
+                    return;
+                }
 
+                var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
+                if (humanPlayer == null)
+                {
+                    if (retries > 0)
+                    {
+                        Puts($"[Spawn] HumanPlayer not ready for {npcId}, retrying ({retries} left)");
+                        ApplySettingsWhenReady(npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
+                        return;
+                    }
+                    CompleteCommand(cmdId, "failed", "HumanPlayer component never initialized");
+                    return;
+                }
+
+                // Apply all settings atomically
+                try
+                {
+                    // Health
+                    npcPlayer.health = health;
+                    npcPlayer._maxHealth = health;
+                    npcPlayer.SendNetworkUpdate();
+
+                    // Get HumanNPC info object via reflection
+                    var infoField = humanPlayer.GetType().GetField("info");
+                    if (infoField != null)
+                    {
+                        var info = infoField.GetValue(humanPlayer);
+                        if (info != null)
+                        {
+                            SetField(info, "damageAmount", damage);
+                            SetField(info, "speed", speed);
+                            SetField(info, "collisionRadius", detectRadius);
+                            SetField(info, "hostile", hostile);
+                            SetField(info, "lootable", lootable);
+                            SetField(info, "invulnerability", invulnerable);
+                            SetField(info, "respawn", respawn);
+                            SetField(info, "respawnSeconds", (float)respawnDelay);
+
+                            // Kit
+                            if (!string.IsNullOrEmpty(kit))
+                            {
+                                var spawnkitField = info.GetType().GetField("spawnkit");
+                                if (spawnkitField != null)
+                                    spawnkitField.SetValue(info, kit);
+                            }
+
+                            HumanNPC.Call("UpdateNPC", npcPlayer, true);
+                        }
+                    }
+
+                    // Invulnerability via our own hook
+                    SetHumanNpcInvulnerability(npcPlayer, invulnerable);
+
+                    // Apply kit items
+                    if (!string.IsNullOrEmpty(kit) && Kits != null)
+                    {
+                        npcPlayer.inventory.Strip();
+                        Kits.Call("GiveKit", npcPlayer, kit);
+                    }
+
+                    Puts($"[Spawn] Settings applied for NPC {npcId}");
+                    CompleteCommand(cmdId, "done", npcId.ToString());
+                }
+                catch (Exception ex)
+                {
+                    PrintWarning($"[Spawn] Failed to apply settings for NPC {npcId}: {ex.Message}");
+                    CompleteCommand(cmdId, "done", npcId.ToString()); // NPC exists, settings partially applied
+                }
+            });
+        }
+
+        private void HandleRemove(int cmdId, JObject data)
+        {
             if (HumanNPC == null)
             {
-                arg.ReplyWith("ERROR: HumanNPC plugin is not loaded");
+                CompleteCommand(cmdId, "failed", "HumanNPC plugin is not loaded");
                 return;
             }
 
+            string npcIdStr = data.Value<string>("npcId") ?? "";
             ulong npcId;
-            if (!ulong.TryParse(arg.Args[0], out npcId))
+            if (!ulong.TryParse(npcIdStr, out npcId))
             {
-                arg.ReplyWith("ERROR: Invalid NPC ID");
+                CompleteCommand(cmdId, "failed", "Invalid NPC ID");
                 return;
+            }
+
+            // Kill first if alive
+            var npcPlayer = BasePlayer.FindByID(npcId);
+            if (npcPlayer != null && !npcPlayer.IsDead())
+            {
+                // Temporarily remove invulnerability so Kill works
+                invulnerableNpcs.Remove(npcId);
+                npcPlayer.Die();
             }
 
             HumanNPC.Call("RemoveNPC", npcId);
             spawnedNpcs.Remove(npcId);
             invulnerableNpcs.Remove(npcId);
-            _npcRecords.Remove(npcId);
-            DeleteNpcFromDb(npcId);
-            arg.ReplyWith("OK:removed");
+
+            _sqlite.ExecuteNonQuery(
+                Sql.Builder.Append("UPDATE spawned_npcs SET status = 'removed' WHERE npc_id = @0;", npcId.ToString()), _db);
+
+            Puts($"[Remove] NPC {npcId} removed");
+            CompleteCommand(cmdId, "done", "removed");
         }
 
-        [ConsoleCommand("npcadmin.removeall")]
-        private void CmdRemoveAll(ConsoleSystem.Arg arg)
+        private void HandleRemoveAll(int cmdId)
         {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
-
             if (HumanNPC == null)
             {
-                arg.ReplyWith("ERROR: HumanNPC plugin is not loaded");
+                CompleteCommand(cmdId, "failed", "HumanNPC plugin is not loaded");
                 return;
             }
 
             int count = 0;
-            var npcs = GetNpcList();
-            foreach (var npc in npcs)
+            foreach (var npcId in spawnedNpcs.ToList())
             {
-                HumanNPC.Call("RemoveNPC", npc.Id);
-                invulnerableNpcs.Remove(npc.Id);
+                var npcPlayer = BasePlayer.FindByID(npcId);
+                if (npcPlayer != null && !npcPlayer.IsDead())
+                {
+                    invulnerableNpcs.Remove(npcId);
+                    npcPlayer.Die();
+                }
+
+                HumanNPC.Call("RemoveNPC", npcId);
                 count++;
             }
+
             spawnedNpcs.Clear();
-            _npcRecords.Clear();
-            DeleteAllNpcsFromDb();
+            invulnerableNpcs.Clear();
 
-            arg.ReplyWith($"OK:{count}");
+            _sqlite.ExecuteNonQuery(
+                Sql.Builder.Append("UPDATE spawned_npcs SET status = 'removed' WHERE status != 'removed';"), _db);
+
+            Puts($"[RemoveAll] Removed {count} NPCs");
+            CompleteCommand(cmdId, "done", count.ToString());
         }
 
-        [ConsoleCommand("npcadmin.list")]
-        private void CmdList(ConsoleSystem.Arg arg)
+        private void HandleUpdate(int cmdId, JObject data)
         {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
-
             if (HumanNPC == null)
             {
-                arg.ReplyWith("[]");
+                CompleteCommand(cmdId, "failed", "HumanNPC plugin is not loaded");
                 return;
             }
 
-            var npcs = GetNpcList();
-            arg.ReplyWith(JsonConvert.SerializeObject(npcs));
-        }
-
-        [ConsoleCommand("npcadmin.set")]
-        private void CmdSet(ConsoleSystem.Arg arg)
-        {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
-
-            if (arg.Args == null || arg.Args.Length < 3)
-            {
-                arg.ReplyWith("Usage: npcadmin.set <npcid> <option> <value>");
-                return;
-            }
-
-            if (HumanNPC == null)
-            {
-                arg.ReplyWith("ERROR: HumanNPC plugin is not loaded");
-                return;
-            }
-
+            string npcIdStr = data.Value<string>("npcId") ?? "";
             ulong npcId;
-            if (!ulong.TryParse(arg.Args[0], out npcId))
+            if (!ulong.TryParse(npcIdStr, out npcId))
             {
-                arg.ReplyWith("ERROR: Invalid NPC ID");
+                CompleteCommand(cmdId, "failed", "Invalid NPC ID");
                 return;
             }
 
-            string option = arg.Args[1].ToLower();
-            string value = string.Join(" ", arg.Args.Skip(2));
+            string field = data.Value<string>("field") ?? "";
+            var valueToken = data["value"];
+            if (string.IsNullOrEmpty(field) || valueToken == null)
+            {
+                CompleteCommand(cmdId, "failed", "Missing field or value");
+                return;
+            }
 
             var npcPlayer = BasePlayer.FindByID(npcId);
             if (npcPlayer == null)
             {
-                arg.ReplyWith("ERROR: NPC not found");
+                CompleteCommand(cmdId, "failed", "NPC not found in game");
                 return;
             }
 
-            // Check if HumanPlayer component is ready; if not, retry after a delay
-            var humanPlayerCheck = npcPlayer.GetComponent("HumanPlayer");
-            Puts($"[Set] NPC {npcId} option={option} value={value} HumanPlayer={humanPlayerCheck != null}");
-            if (humanPlayerCheck == null)
+            try
             {
-                Puts($"[Set] HumanPlayer not ready, deferring {option} for NPC {npcId}");
-                ApplySettingDelayed(npcId, option, value);
-                arg.ReplyWith("OK:updated");
-                return;
-            }
-
-            ApplySetting(npcPlayer, npcId, option, value, arg);
-        }
-
-        private void ApplySettingDelayed(ulong npcId, string option, string value, int retries = 3)
-        {
-            Puts($"[SetDelayed] NPC {npcId} option={option} retries={retries}");
-            timer.Once(0.5f, () =>
-            {
-                var npcPlayer = BasePlayer.FindByID(npcId);
-                if (npcPlayer == null) return;
-
-                var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
-                if (humanPlayer == null && retries > 0)
+                switch (field)
                 {
-                    ApplySettingDelayed(npcId, option, value, retries - 1);
-                    return;
-                }
-
-                ApplySetting(npcPlayer, npcId, option, value, null);
-            });
-        }
-
-        private void ApplySetting(BasePlayer npcPlayer, ulong npcId, string option, string value, ConsoleSystem.Arg arg)
-        {
-            switch (option)
-            {
-                case "health":
-                    float hp;
-                    if (float.TryParse(value, out hp))
-                    {
+                    case "health":
+                        float hp = valueToken.Value<float>();
                         npcPlayer.health = hp;
                         npcPlayer._maxHealth = hp;
                         npcPlayer.SendNetworkUpdate();
-                        UpdateNpcFieldInDb(npcId, "health", hp);
-                        if (_npcRecords.ContainsKey(npcId))
-                            _npcRecords[npcId].Health = hp;
-                    }
-                    break;
+                        UpdateDbField(npcId, "health", hp);
+                        break;
 
-                case "kit":
-                    if (Kits == null)
-                    {
-                        arg?.ReplyWith("ERROR: Kits plugin is not loaded");
-                        return;
-                    }
-                    npcPlayer.inventory.Strip();
-                    var kitResult = Kits.Call("GiveKit", npcPlayer, value);
-                    if (kitResult is string errMsg)
-                    {
-                        arg?.ReplyWith($"ERROR: Kit failed — {errMsg}");
-                        return;
-                    }
-                    // Set spawnkit on HumanNPC info so kit persists across respawns
-                    try
-                    {
-                        var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
-                        if (humanPlayer != null)
+                    case "kit":
+                        string kitName = valueToken.Value<string>();
+                        if (Kits != null && !string.IsNullOrEmpty(kitName))
                         {
-                            var infoField = humanPlayer.GetType().GetField("info");
-                            if (infoField != null)
-                            {
-                                var info = infoField.GetValue(humanPlayer);
-                                if (info != null)
-                                {
-                                    var spawnkitField = info.GetType().GetField("spawnkit");
-                                    if (spawnkitField != null)
-                                        spawnkitField.SetValue(info, value);
-                                    HumanNPC.Call("UpdateNPC", npcPlayer, true);
-                                }
-                            }
+                            npcPlayer.inventory.Strip();
+                            Kits.Call("GiveKit", npcPlayer, kitName);
+                            SetHumanNpcInfoField(npcPlayer, "spawnkit", kitName);
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        PrintWarning($"Failed to set spawnkit on HumanNPC: {ex.Message}");
-                    }
-                    npcPlayer.SendNetworkUpdate();
-                    UpdateNpcFieldInDb(npcId, "kit", value);
-                    if (_npcRecords.ContainsKey(npcId))
-                        _npcRecords[npcId].Kit = value;
-                    break;
+                        UpdateDbField(npcId, "kit", kitName);
+                        break;
 
-                case "invulnerable":
-                case "invulnerability":
-                    bool invuln;
-                    if (bool.TryParse(value, out invuln))
-                    {
-                        if (invuln)
-                            invulnerableNpcs.Add(npcId);
-                        else
-                            invulnerableNpcs.Remove(npcId);
-
+                    case "invulnerable":
+                        bool invuln = valueToken.Value<bool>();
+                        if (invuln) invulnerableNpcs.Add(npcId);
+                        else invulnerableNpcs.Remove(npcId);
                         SetHumanNpcInvulnerability(npcPlayer, invuln);
-                        UpdateNpcFieldInDb(npcId, "invulnerable", invuln ? 1 : 0);
-                        if (_npcRecords.ContainsKey(npcId))
-                            _npcRecords[npcId].Invulnerable = invuln;
-                    }
-                    break;
+                        UpdateDbField(npcId, "invulnerable", invuln ? 1 : 0);
+                        break;
 
-                case "hostile":
-                case "lootable":
-                case "respawn":
-                case "damageamount":
-                case "speed":
-                case "radius":
-                case "collisionradius":
-                case "defend":
-                case "evade":
-                case "follow":
-                    try
-                    {
-                        var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
-                        if (humanPlayer == null)
-                        {
-                            PrintWarning($"HumanPlayer component not found for NPC {npcId} — {option} not applied");
-                            return;
-                        }
-                        var infoField = humanPlayer.GetType().GetField("info");
-                        if (infoField == null) return;
-                        var info = infoField.GetValue(humanPlayer);
-                        if (info == null) return;
-                        SetInfoProperty(info, option, value);
-                        HumanNPC.Call("UpdateNPC", npcPlayer, true);
+                    case "hostile":
+                        bool hostileVal = valueToken.Value<bool>();
+                        SetHumanNpcInfoField(npcPlayer, "hostile", hostileVal);
+                        UpdateDbField(npcId, "hostile", hostileVal ? 1 : 0);
+                        break;
 
-                        if (option == "hostile" && _npcRecords.ContainsKey(npcId))
-                        {
-                            bool hostileVal;
-                            if (bool.TryParse(value, out hostileVal))
-                            {
-                                _npcRecords[npcId].Hostile = hostileVal;
-                                UpdateNpcFieldInDb(npcId, "hostile", hostileVal ? 1 : 0);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        PrintWarning($"Failed to set {option} on NPC {npcId}: {ex.Message}");
-                    }
-                    break;
+                    case "lootable":
+                        bool lootVal = valueToken.Value<bool>();
+                        SetHumanNpcInfoField(npcPlayer, "lootable", lootVal);
+                        UpdateDbField(npcId, "lootable", lootVal ? 1 : 0);
+                        break;
 
-                default:
-                    arg?.ReplyWith($"ERROR: Unknown option '{option}'");
-                    return;
+                    case "damage":
+                        float dmg = valueToken.Value<float>();
+                        SetHumanNpcInfoField(npcPlayer, "damageAmount", dmg);
+                        UpdateDbField(npcId, "damage", dmg);
+                        break;
+
+                    case "speed":
+                        float spd = valueToken.Value<float>();
+                        SetHumanNpcInfoField(npcPlayer, "speed", spd);
+                        UpdateDbField(npcId, "speed", spd);
+                        break;
+
+                    case "detect_radius":
+                        float rad = valueToken.Value<float>();
+                        SetHumanNpcInfoField(npcPlayer, "collisionRadius", rad);
+                        UpdateDbField(npcId, "detect_radius", rad);
+                        break;
+
+                    default:
+                        CompleteCommand(cmdId, "failed", $"Unknown field: {field}");
+                        return;
+                }
+
+                CompleteCommand(cmdId, "done", "updated");
+            }
+            catch (Exception ex)
+            {
+                CompleteCommand(cmdId, "failed", ex.Message);
             }
         }
 
-        private void SetInfoProperty(object info, string option, string value)
+        #endregion
+
+        #region Position Tracking
+
+        private void UpdatePositions()
         {
-            var type = info.GetType();
+            if (_db == null) return;
 
-            string fieldName;
-            switch (option)
+            foreach (var npcId in spawnedNpcs.ToList())
             {
-                case "radius":
-                case "collisionradius":
-                    fieldName = "collisionRadius";
-                    break;
-                case "damageamount":
-                    fieldName = "damageAmount";
-                    break;
-                case "invulnerable":
-                    fieldName = "invulnerability";
-                    break;
-                case "respawn":
-                    var parts = value.Split(' ');
-                    var respawnField = type.GetField("respawn");
-                    if (respawnField != null)
-                        respawnField.SetValue(info, bool.Parse(parts[0]));
-                    if (parts.Length > 1)
-                    {
-                        var secondsField = type.GetField("respawnSeconds");
-                        if (secondsField != null)
-                            secondsField.SetValue(info, float.Parse(parts[1]));
-                    }
-                    return;
-                default:
-                    fieldName = option;
-                    break;
+                var player = BasePlayer.FindByID(npcId);
+                if (player != null && !player.IsDead())
+                {
+                    var pos = player.transform.position;
+                    _sqlite.ExecuteNonQuery(
+                        Sql.Builder.Append(
+                            "UPDATE spawned_npcs SET pos_x = @0, pos_y = @1, pos_z = @2, status = 'alive' WHERE npc_id = @3;",
+                            pos.x, pos.y, pos.z, npcId.ToString()),
+                        _db);
+                }
+                else
+                {
+                    // Check if NPC is dead but should still be tracked (respawn)
+                    _sqlite.ExecuteNonQuery(
+                        Sql.Builder.Append(
+                            "UPDATE spawned_npcs SET status = 'dead' WHERE npc_id = @0 AND status = 'alive';",
+                            npcId.ToString()),
+                        _db);
+                }
             }
 
-            var field = type.GetField(fieldName);
-            if (field == null) return;
-
-            if (field.FieldType == typeof(float))
-                field.SetValue(info, float.Parse(value));
-            else if (field.FieldType == typeof(bool))
-                field.SetValue(info, bool.Parse(value));
-            else if (field.FieldType == typeof(string))
-                field.SetValue(info, value);
-        }
-
-        [ConsoleCommand("npcadmin.give")]
-        private void CmdGive(ConsoleSystem.Arg arg)
-        {
-            if (!arg.IsRcon && !arg.IsAdmin) return;
-
-            if (arg.Args == null || arg.Args.Length < 2)
-            {
-                arg.ReplyWith("Usage: npcadmin.give <npcid> <itemname> [belt|wear|main]");
-                return;
-            }
-
-            if (HumanNPC == null)
-            {
-                arg.ReplyWith("ERROR: HumanNPC plugin is not loaded");
-                return;
-            }
-
-            ulong npcId;
-            if (!ulong.TryParse(arg.Args[0], out npcId))
-            {
-                arg.ReplyWith("ERROR: Invalid NPC ID");
-                return;
-            }
-
-            string itemShortname = arg.Args[1];
-            string container = arg.Args.Length >= 3 ? arg.Args[2] : "belt";
-
-            var npcPlayer = BasePlayer.FindByID(npcId);
-            if (npcPlayer == null)
-            {
-                arg.ReplyWith("ERROR: NPC not found");
-                return;
-            }
-
-            var itemDef = ItemManager.FindItemDefinition(itemShortname);
-            if (itemDef == null)
-            {
-                arg.ReplyWith($"ERROR: Unknown item '{itemShortname}'");
-                return;
-            }
-
-            var item = ItemManager.Create(itemDef);
-            if (item == null)
-            {
-                arg.ReplyWith("ERROR: Failed to create item");
-                return;
-            }
-
-            ItemContainer targetContainer;
-            switch (container.ToLower())
-            {
-                case "wear":
-                    targetContainer = npcPlayer.inventory.containerWear;
-                    break;
-                case "main":
-                    targetContainer = npcPlayer.inventory.containerMain;
-                    break;
-                default:
-                    targetContainer = npcPlayer.inventory.containerBelt;
-                    break;
-            }
-
-            if (!item.MoveToContainer(targetContainer))
-            {
-                item.Remove();
-                arg.ReplyWith("ERROR: Failed to move item to container (full?)");
-                return;
-            }
-
-            arg.ReplyWith("OK:given");
+            // Clean old completed commands (older than 1 hour)
+            _sqlite.ExecuteNonQuery(
+                Sql.Builder.Append("DELETE FROM npc_commands WHERE status IN ('done', 'failed') AND created_at < datetime('now', '-1 hour');"),
+                _db);
         }
 
         #endregion
 
         #region Helpers
 
+        private void SetField(object info, string fieldName, object value)
+        {
+            var field = info.GetType().GetField(fieldName);
+            if (field == null) return;
+
+            if (field.FieldType == typeof(float) && value is double)
+                field.SetValue(info, (float)(double)value);
+            else if (field.FieldType == typeof(float) && value is int)
+                field.SetValue(info, (float)(int)value);
+            else if (field.FieldType == typeof(float))
+                field.SetValue(info, Convert.ToSingle(value));
+            else if (field.FieldType == typeof(bool))
+                field.SetValue(info, Convert.ToBoolean(value));
+            else if (field.FieldType == typeof(string))
+                field.SetValue(info, value.ToString());
+            else
+                field.SetValue(info, value);
+        }
+
         private void SetHumanNpcInvulnerability(BasePlayer npcPlayer, bool invuln)
         {
             try
             {
                 var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
-                Puts($"[SetInvuln] NPC {npcPlayer.userID} invuln={invuln} HumanPlayer={humanPlayer != null}");
                 if (humanPlayer == null) return;
 
                 var infoField = humanPlayer.GetType().GetField("info");
-                Puts($"[SetInvuln] infoField={infoField != null}");
                 if (infoField == null) return;
 
                 var info = infoField.GetValue(humanPlayer);
-                Puts($"[SetInvuln] info={info != null}");
                 if (info == null) return;
 
-                // Log current value before change
-                var invulnField = info.GetType().GetField("invulnerability");
-                if (invulnField != null)
-                    Puts($"[SetInvuln] Before: invulnerability={invulnField.GetValue(info)}");
-
-                SetInfoProperty(info, "invulnerable", invuln.ToString());
-
-                if (invulnField != null)
-                    Puts($"[SetInvuln] After: invulnerability={invulnField.GetValue(info)}");
-
+                SetField(info, "invulnerability", invuln);
                 HumanNPC.Call("UpdateNPC", npcPlayer, true);
-                Puts($"[SetInvuln] UpdateNPC called with save=true");
             }
             catch (Exception ex)
             {
-                PrintWarning($"Failed to set invulnerability on HumanNPC: {ex.Message}");
+                PrintWarning($"Failed to set invulnerability: {ex.Message}");
             }
         }
 
-        private List<NpcInfo> GetNpcList()
+        private void SetHumanNpcInfoField(BasePlayer npcPlayer, string fieldName, object value)
         {
-            var result = new List<NpcInfo>();
-
-            foreach (var npcId in spawnedNpcs)
+            try
             {
-                var player = BasePlayer.FindByID(npcId);
-                NpcDbRecord record = null;
-                _npcRecords.TryGetValue(npcId, out record);
+                var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
+                if (humanPlayer == null) return;
 
-                if (player != null && !player.IsDead())
-                {
-                    result.Add(new NpcInfo
-                    {
-                        Id = player.userID,
-                        Name = player.displayName ?? "NPC",
-                        X = player.transform.position.x,
-                        Y = player.transform.position.y,
-                        Z = player.transform.position.z,
-                        Health = player.health,
-                        Kit = record?.Kit,
-                        Invulnerable = invulnerableNpcs.Contains(player.userID),
-                        Hostile = record != null ? record.Hostile : false,
-                        Online = true
-                    });
-                }
-                else if (record != null)
-                {
-                    result.Add(new NpcInfo
-                    {
-                        Id = npcId,
-                        Name = record.Name ?? "NPC",
-                        Health = record.Health,
-                        Kit = record.Kit,
-                        Invulnerable = record.Invulnerable,
-                        Hostile = record.Hostile,
-                        Online = false
-                    });
-                }
+                var infoField = humanPlayer.GetType().GetField("info");
+                if (infoField == null) return;
+
+                var info = infoField.GetValue(humanPlayer);
+                if (info == null) return;
+
+                SetField(info, fieldName, value);
+                HumanNPC.Call("UpdateNPC", npcPlayer, true);
             }
+            catch (Exception ex)
+            {
+                PrintWarning($"Failed to set {fieldName}: {ex.Message}");
+            }
+        }
 
-            return result;
+        private void UpdateDbField(ulong npcId, string field, object value)
+        {
+            string sql = $"UPDATE spawned_npcs SET {field} = @0 WHERE npc_id = @1;";
+            _sqlite.ExecuteNonQuery(Sql.Builder.Append(sql, value, npcId.ToString()), _db);
         }
 
         #endregion

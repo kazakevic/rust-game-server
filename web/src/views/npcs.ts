@@ -122,28 +122,40 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
         setTimeout(() => el.classList.add('hidden'), 5000);
       }
 
-      async function rcon(cmd) {
-        const res = await fetch('/api/rcon', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: cmd })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        return data.response || '';
+      function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      // Poll command status until done/failed
+      async function waitForCommand(cmdId, timeoutMs) {
+        const deadline = Date.now() + (timeoutMs || 15000);
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
+            const res = await fetch('/api/npcs/commands/' + cmdId);
+            const data = await res.json();
+            if (!data.command) continue;
+            if (data.command.status === 'done') return { ok: true, result: data.command.result };
+            if (data.command.status === 'failed') return { ok: false, result: data.command.result };
+          } catch {}
+        }
+        return { ok: false, result: 'Timeout waiting for command to complete' };
       }
 
       async function loadPlayers() {
         playerSelect.innerHTML = '<option value="">Loading...</option>';
         try {
-          const raw = await rcon('playerlist');
-          const players = JSON.parse(raw);
+          const res = await fetch('/api/players');
+          const data = await res.json();
+          const players = data.players || [];
           if (!players.length) {
             playerSelect.innerHTML = '<option value="">No players online</option>';
             return;
           }
           playerSelect.innerHTML = players
-            .map(p => '<option value="' + p.SteamID + '">' + (p.DisplayName || p.SteamID) + '</option>')
+            .map(p => '<option value="' + p.SteamID + '">' + escapeHtml(p.DisplayName || p.SteamID) + '</option>')
             .join('');
         } catch (e) {
           playerSelect.innerHTML = '<option value="">Failed to load players</option>';
@@ -153,52 +165,54 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       async function loadNpcs() {
         npcListEl.innerHTML = '<div class="text-sm text-zinc-400 py-4 text-center">Loading...</div>';
         try {
-          const raw = await rcon('npcadmin.list');
-          const npcs = JSON.parse(raw);
+          const res = await fetch('/api/npcs');
+          const data = await res.json();
+          const npcs = data.npcs || [];
           if (!npcs.length) {
             npcListEl.innerHTML = '<div class="flex flex-col items-center justify-center py-8 text-center"><svg class="w-8 h-8 text-zinc-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg><p class="text-sm text-zinc-500">No NPCs spawned</p></div>';
             return;
           }
           npcListEl.innerHTML = '<div class="divide-y divide-zinc-100">' +
-            npcs.map(npc =>
-              '<div class="flex items-center justify-between py-3' + (npc.Online ? '' : ' opacity-60') + '">' +
+            npcs.map(npc => {
+              const isAlive = npc.status === 'alive';
+              const isPending = npc.status === 'pending';
+              return '<div class="flex items-center justify-between py-3' + (isAlive ? '' : ' opacity-60') + '">' +
                 '<div class="flex items-center gap-3">' +
-                  '<div class="flex items-center justify-center w-8 h-8 rounded-full ' + (npc.Online ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-50 text-zinc-400') + ' text-xs font-mono">' + String(npc.Id).slice(-4) + '</div>' +
+                  '<div class="flex items-center justify-center w-8 h-8 rounded-full ' + (isAlive ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-50 text-zinc-400') + ' text-xs font-mono">' + String(npc.npc_id).slice(-4) + '</div>' +
                   '<div>' +
-                    '<p class="text-sm font-medium text-zinc-900">' + escapeHtml(npc.Name) +
-                      (npc.Online
-                        ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">Online</span>'
-                        : ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 border border-zinc-200">Offline</span>') +
-                      (npc.Invulnerable ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Invulnerable</span>' : '') +
-                      (npc.Hostile ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200">Hostile</span>' : '') +
+                    '<p class="text-sm font-medium text-zinc-900">' + escapeHtml(npc.name) +
+                      (isAlive
+                        ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">Alive</span>'
+                        : isPending
+                        ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">Spawning</span>'
+                        : ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 border border-zinc-200">Dead</span>') +
+                      (npc.invulnerable ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Invulnerable</span>' : '') +
+                      (npc.hostile ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200">Hostile</span>' : '') +
                     '</p>' +
-                    '<p class="text-xs text-zinc-400">ID: ' + npc.Id + ' &middot; HP: ' + Math.round(npc.Health) +
-                      (npc.Kit ? ' &middot; Kit: ' + escapeHtml(npc.Kit) : '') +
-                      (npc.Online ? ' &middot; Pos: ' + Math.round(npc.X) + ', ' + Math.round(npc.Y) + ', ' + Math.round(npc.Z) : '') +
+                    '<p class="text-xs text-zinc-400">ID: ' + npc.npc_id + ' &middot; HP: ' + Math.round(npc.health) +
+                      (npc.kit ? ' &middot; Kit: ' + escapeHtml(npc.kit) : '') +
+                      ' &middot; DMG: ' + npc.damage + ' &middot; Speed: ' + npc.speed +
+                      (isAlive && npc.pos_x != null ? ' &middot; Pos: ' + Math.round(npc.pos_x) + ', ' + Math.round(npc.pos_y) + ', ' + Math.round(npc.pos_z) : '') +
                     '</p>' +
                   '</div>' +
                 '</div>' +
-                '<button onclick="removeNpc(' + npc.Id + ')" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer">Remove</button>' +
-              '</div>'
-            ).join('') +
+                '<button onclick="removeNpc(\'' + npc.npc_id + '\')" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer">Remove</button>' +
+              '</div>';
+            }).join('') +
           '</div>';
         } catch (e) {
           npcListEl.innerHTML = '<div class="text-sm text-red-500 py-4 text-center">Failed to load NPCs: ' + escapeHtml(e.message) + '</div>';
         }
       }
 
-      function escapeHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
-      }
-
       async function removeNpc(id) {
         if (!confirm('Remove NPC ' + id + '?')) return;
         try {
-          await rcon('npcadmin.kill ' + id);
-          const res = await rcon('npcadmin.remove ' + id);
-          if (res.startsWith('ERROR')) throw new Error(res);
+          const res = await fetch('/api/npcs/' + id, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          const result = await waitForCommand(data.commandId, 10000);
+          if (!result.ok) throw new Error(result.result);
           loadNpcs();
         } catch (e) {
           alert('Failed to remove NPC: ' + e.message);
@@ -215,48 +229,34 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
         spawnBtn.textContent = 'Spawning...';
 
         try {
-          const res = await rcon('npcadmin.spawn ' + steamId + ' "' + name.replace(/"/g, '') + '"');
-          if (res.startsWith('ERROR')) throw new Error(res.replace('ERROR: ', ''));
+          const body = {
+            steamId,
+            name,
+            health: parseFloat(document.querySelector('input[name="npc-health"]').value) || 100,
+            detectRadius: parseFloat(document.querySelector('input[name="npc-radius"]').value) || 30,
+            damage: parseFloat(document.querySelector('input[name="npc-damage"]').value) || 10,
+            speed: parseFloat(document.querySelector('input[name="npc-speed"]').value) || 3,
+            kit: document.querySelector('input[name="npc-kit"]').value.trim() || undefined,
+            hostile: document.querySelector('input[name="npc-hostile"][type="checkbox"]').checked,
+            invulnerable: document.querySelector('input[name="npc-invulnerable"][type="checkbox"]').checked,
+            lootable: document.querySelector('input[name="npc-lootable"][type="checkbox"]').checked,
+            respawn: document.querySelector('input[name="npc-respawn"][type="checkbox"]').checked,
+            respawnDelay: parseInt(document.querySelector('input[name="npc-respawn-time"]').value) || 60,
+          };
 
-          // Extract numeric NPC ID from response like "[Human NPC] Spawned NPC: 10862357504"
-          // Use [0-9] instead of \\d because this code is inside a template literal
-          const idMatch = res.match(/([0-9]{5,})/);
-          if (!idMatch) throw new Error('Could not parse NPC ID from: ' + res);
-          const npcId = idMatch[1];
+          const res = await fetch('/api/npcs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
 
-          // Wait for HumanNPC to finish component setup
-          await new Promise(r => setTimeout(r, 1500));
+          // Poll for command completion
+          const result = await waitForCommand(data.commandId, 15000);
+          if (!result.ok) throw new Error(result.result);
 
-          // Apply settings
-          const settings = [];
-          const health = document.querySelector('input[name="npc-health"]').value;
-          const radius = document.querySelector('input[name="npc-radius"]').value;
-          const damage = document.querySelector('input[name="npc-damage"]').value;
-          const speed = document.querySelector('input[name="npc-speed"]').value;
-          const kit = document.querySelector('input[name="npc-kit"]').value.trim();
-          const hostile = document.querySelector('input[name="npc-hostile"][type="checkbox"]').checked;
-          const invuln = document.querySelector('input[name="npc-invulnerable"][type="checkbox"]').checked;
-          const lootable = document.querySelector('input[name="npc-lootable"][type="checkbox"]').checked;
-          const respawn = document.querySelector('input[name="npc-respawn"][type="checkbox"]').checked;
-
-          if (health) settings.push(['health', health]);
-          if (radius) settings.push(['radius', radius]);
-          if (damage) settings.push(['damageamount', damage]);
-          if (speed) settings.push(['speed', speed]);
-          if (kit) settings.push(['kit', kit]);
-          settings.push(['hostile', hostile ? 'true' : 'false']);
-          settings.push(['invulnerable', invuln ? 'true' : 'false']);
-          settings.push(['lootable', lootable ? 'true' : 'false']);
-          if (respawn) {
-            const respawnTime = document.querySelector('input[name="npc-respawn-time"]').value || '60';
-            settings.push(['respawn', 'true ' + respawnTime]);
-          }
-
-          for (const [key, val] of settings) {
-            await rcon('npcadmin.set ' + npcId + ' ' + key + ' ' + val);
-          }
-
-          showMsg(spawnSuccess, 'NPC "' + name + '" spawned successfully (ID: ' + npcId + ')', 'success');
+          showMsg(spawnSuccess, 'NPC "' + name + '" spawned successfully (ID: ' + result.result + ')', 'success');
           loadNpcs();
         } catch (e) {
           showMsg(spawnError, 'Failed to spawn NPC: ' + e.message, 'error');
@@ -288,10 +288,12 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       confirmRemoveAllBtn.addEventListener('click', async () => {
         document.getElementById('confirm-remove-all').classList.add('hidden');
         try {
-          await rcon('npcadmin.killall');
-          const res = await rcon('npcadmin.removeall');
-          if (res.startsWith('ERROR')) throw new Error(res);
-          const count = res.replace('OK:', '');
+          const res = await fetch('/api/npcs', { method: 'DELETE' });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          const result = await waitForCommand(data.commandId, 10000);
+          if (!result.ok) throw new Error(result.result);
+          const count = result.result || '0';
           showMsg(spawnSuccess, 'Removed ' + count + ' NPC(s).', 'success');
           loadNpcs();
         } catch (e) {
@@ -303,10 +305,18 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
         reloadPluginBtn.disabled = true;
         reloadPluginBtn.textContent = 'Reloading...';
         try {
-          await rcon('oxide.reload NpcAdmin');
-          await rcon('oxide.reload HumanNPC');
+          await fetch('/api/rcon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'oxide.reload NpcAdmin' })
+          });
+          await fetch('/api/rcon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'oxide.reload HumanNPC' })
+          });
           showMsg(spawnSuccess, 'NpcAdmin and HumanNPC plugins reloaded.', 'success');
-          setTimeout(loadNpcs, 1000);
+          setTimeout(loadNpcs, 2000);
         } catch (e) {
           showMsg(spawnError, 'Failed to reload: ' + e.message, 'error');
         } finally {
