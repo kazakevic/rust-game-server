@@ -16,7 +16,7 @@ export function logsPage(logs: string) {
 
   return layout("Server Logs", `
     ${pageHeader("Server Logs", {
-      description: "Real-time server output",
+      description: "Real-time Rust server output",
       actions: `
         ${tailSelect}
         ${button("Refresh", { variant: "outline", size: "sm", attrs: 'id="refresh-btn"' })}

@@ -2,10 +2,12 @@ import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
 import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer } from "./docker";
 import { RconClient } from "./rcon";
+import * as webLog from "./logger";
 import { loginPage } from "./views/login";
 import { dashboardPage } from "./views/dashboard";
 import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
+import { webLogsPage } from "./views/web-logs";
 import { configPage } from "./views/config";
 import { configsListPage, configsEditPage } from "./views/configs";
 import { npcsPage } from "./views/npcs";
@@ -46,11 +48,13 @@ const app = new Elysia()
   .post("/login", async ({ body, set }) => {
     const { username, password } = body as { username: string; password: string };
     if (!validateCredentials(username, password)) {
+      webLog.warn("auth", `Failed login attempt for user "${username}"`);
       return new Response(loginPage("Invalid credentials"), {
         status: 401,
         headers: { "Content-Type": "text/html" },
       });
     }
+    webLog.info("auth", `User "${username}" logged in`);
     const token = generateSession();
     return new Response(null, {
       status: 302,
@@ -64,6 +68,7 @@ const app = new Elysia()
   .post("/logout", ({ headers }) => {
     const token = getCookie(headers, "session");
     if (token) destroySession(token);
+    webLog.info("auth", "User logged out");
     return new Response(null, {
       status: 302,
       headers: {
@@ -127,9 +132,11 @@ const app = new Elysia()
     if (!command) return { error: "no command provided" };
 
     try {
+      webLog.info("rcon", `Command: ${command}`);
       const response = await rcon.command(command);
       return { response };
     } catch (e: any) {
+      webLog.error("rcon", `Command failed: ${command} — ${e.message}`);
       return { error: e.message };
     }
   })
@@ -148,6 +155,26 @@ const app = new Elysia()
     if (blocked) return { error: "unauthorized" };
     const tail = Math.min(parseInt(query.tail || "200") || 200, 5000);
     const logs = await getServerLogs(tail);
+    return { logs };
+  })
+
+  // Web Logs page
+  .get("/web-logs", ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    const logs = webLog.getWebLogs({ tail: 200 });
+    const categories = webLog.getCategories();
+    return new Response(webLogsPage(logs, categories), { headers: { "Content-Type": "text/html" } });
+  })
+
+  // API: Web Logs
+  .get("/api/web-logs", ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return { error: "unauthorized" };
+    const tail = Math.min(parseInt(query.tail || "200") || 200, 1000);
+    const level = (query.level as any) || undefined;
+    const category = query.category || undefined;
+    const logs = webLog.getWebLogs({ tail, level, category });
     return { logs };
   })
 
@@ -228,8 +255,10 @@ const app = new Elysia()
       // Reload plugin to pick up changes
       try { await rcon.command("oxide.reload GunGame"); } catch {}
 
+      webLog.info("config", "GunGame config saved and plugin reloaded");
       return new Response(null, { status: 302, headers: { Location: "/config/gungame?saved=1" } });
     } catch (e: any) {
+      webLog.error("config", `Failed to save GunGame config: ${e.message}`);
       const configData = { config: null, error: "Failed to save config: " + e.message };
       return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });
     }
@@ -316,8 +345,10 @@ const app = new Elysia()
 
       try { await rcon.command("oxide.reload StackSizeController"); } catch {}
 
+      webLog.info("config", "StackSize config saved and plugin reloaded");
       return new Response(null, { status: 302, headers: { Location: "/config/stacksize?saved=1" } });
     } catch (e: any) {
+      webLog.error("config", `Failed to save StackSize config: ${e.message}`);
       return new Response(stackSizePage({ config: null, error: "Failed to save config: " + e.message }), {
         headers: { "Content-Type": "text/html" },
       });
@@ -483,8 +514,10 @@ const app = new Elysia()
       const finalCfg = lines.filter(l => l.trim()).concat(cfgLines).join("\n") + "\n";
       writeFileSync(cfgPath, finalCfg, "utf-8");
 
+      webLog.info("settings", `Server settings saved (mode: ${settings.serverMode}, players: ${settings.maxPlayers})`);
       return new Response(null, { status: 302, headers: { Location: "/server/settings?saved=1" } });
     } catch (e: any) {
+      webLog.error("settings", `Failed to save settings: ${e.message}`);
       return new Response(settingsPage({ settings: null, error: "Failed to save settings: " + e.message }), {
         headers: { "Content-Type": "text/html" },
       });
@@ -529,6 +562,7 @@ const app = new Elysia()
   .post("/api/configs/reload", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("config", "Server configs reloaded via readcfg");
     try {
       await rcon.command("server.readcfg");
     } catch {}
@@ -548,6 +582,7 @@ const app = new Elysia()
     const filepath = join("/cfg", filename);
     if (!existsSync(filepath)) {
       writeFileSync(filepath, "", "utf-8");
+      webLog.info("config", `Config file created: ${filename}`);
     }
     return new Response(null, { status: 302, headers: { Location: `/configs/${encodeURIComponent(filename)}` } });
   })
@@ -562,8 +597,10 @@ const app = new Elysia()
 
     try {
       writeFileSync(filepath, form.content || "", "utf-8");
+      webLog.info("config", `Config file saved: ${filename}`);
       return new Response(null, { status: 302, headers: { Location: `/configs/${encodeURIComponent(filename)}?saved=1` } });
     } catch (e: any) {
+      webLog.error("config", `Failed to save config file ${filename}: ${e.message}`);
       return new Response(configsEditPage({ filename, content: form.content || "", error: "Failed to save: " + e.message }), {
         headers: { "Content-Type": "text/html" },
       });
@@ -578,6 +615,7 @@ const app = new Elysia()
     const filepath = join("/cfg", filename);
     try {
       unlinkSync(filepath);
+      webLog.warn("config", `Config file deleted: ${filename}`);
     } catch {}
     return new Response(null, { status: 302, headers: { Location: "/configs" } });
   })
@@ -586,6 +624,7 @@ const app = new Elysia()
   .post("/api/server/restart", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("server", "Server restart requested");
     await restartServer();
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
@@ -593,6 +632,7 @@ const app = new Elysia()
   .post("/api/server/stop", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.warn("server", "Server stop requested");
     await stopServer();
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
@@ -600,6 +640,7 @@ const app = new Elysia()
   .post("/api/server/start", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("server", "Server start requested");
     await startServer();
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
@@ -608,6 +649,7 @@ const app = new Elysia()
   .post("/api/plugins/reload-all", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("plugins", "Reload all plugins requested");
     try {
       const response = await rcon.command("oxide.reload *");
       return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
@@ -619,6 +661,7 @@ const app = new Elysia()
   .post("/api/plugins/reload-gungame", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("plugins", "Reload GunGame plugin requested");
     try {
       await rcon.command("oxide.reload GunGame");
     } catch {}
@@ -628,6 +671,7 @@ const app = new Elysia()
   .post("/api/world/set-day", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Set time to day");
     try {
       await rcon.command("env.time 12");
     } catch {}
@@ -637,6 +681,7 @@ const app = new Elysia()
   .post("/api/world/set-night", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Set time to night");
     try {
       await rcon.command("env.time 0");
     } catch {}
@@ -646,6 +691,7 @@ const app = new Elysia()
   .post("/api/weather/clear", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Weather set to clear");
     try {
       await rcon.command("weather.fog 0");
       await rcon.command("weather.rain 0");
@@ -657,6 +703,7 @@ const app = new Elysia()
   .post("/api/weather/rain", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Weather set to rain");
     try {
       await rcon.command("weather.rain 1");
       await rcon.command("weather.clouds 0.5");
@@ -667,6 +714,7 @@ const app = new Elysia()
   .post("/api/weather/fog", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Weather set to fog");
     try {
       await rcon.command("weather.fog 1");
     } catch {}
@@ -676,6 +724,7 @@ const app = new Elysia()
   .post("/api/weather/storm", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("world", "Weather set to storm");
     try {
       await rcon.command("weather.rain 1");
       await rcon.command("weather.clouds 1");
@@ -687,6 +736,7 @@ const app = new Elysia()
   .post("/api/plugins/redownload", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
+    webLog.info("plugins", "Plugin redownload and reload requested");
     try {
       await execInServer(["bash", "/scripts/install-plugins.sh"]);
       await rcon.command("oxide.reload *");
@@ -696,4 +746,5 @@ const app = new Elysia()
 
   .listen({ port: PORT, serverName: "RustGG" });
 
+webLog.info("system", `RustGG admin dashboard started on port ${PORT}`);
 console.log(`RustGG admin dashboard running at http://localhost:${PORT}`);

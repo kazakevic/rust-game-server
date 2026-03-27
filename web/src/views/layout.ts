@@ -35,10 +35,11 @@ export function layout(title: string, content: string, opts?: { activePage?: str
     </div>`;
   }
 
-  const serverDropdown = navDropdown("Server", ["rcon", "logs", "configs", "settings"], `
+  const serverDropdown = navDropdown("Server", ["rcon", "logs", "web-logs", "configs", "settings"], `
     ${dropdownLink("/server/settings", "Settings", "settings")}
     ${dropdownLink("/rcon", "Console", "rcon")}
-    ${dropdownLink("/logs", "Logs", "logs")}
+    ${dropdownLink("/logs", "Server Logs", "logs")}
+    ${dropdownLink("/web-logs", "Web Logs", "web-logs")}
     ${dropdownLink("/configs", "Config Files", "configs")}
   `);
 
