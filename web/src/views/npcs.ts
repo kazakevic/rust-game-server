@@ -196,6 +196,7 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       async function removeNpc(id) {
         if (!confirm('Remove NPC ' + id + '?')) return;
         try {
+          await rcon('npcadmin.kill ' + id);
           const res = await rcon('npcadmin.remove ' + id);
           if (res.startsWith('ERROR')) throw new Error(res);
           loadNpcs();
@@ -217,8 +218,9 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
           const res = await rcon('npcadmin.spawn ' + steamId + ' "' + name.replace(/"/g, '') + '"');
           if (res.startsWith('ERROR')) throw new Error(res.replace('ERROR: ', ''));
 
-          // Extract numeric NPC ID from response like "OK:[Human NPC] Spawned NPC: 10862357504"
-          const idMatch = res.match(/(\d{5,})/);
+          // Extract numeric NPC ID from response like "[Human NPC] Spawned NPC: 10862357504"
+          // Use [0-9] instead of \\d because this code is inside a template literal
+          const idMatch = res.match(/([0-9]{5,})/);
           if (!idMatch) throw new Error('Could not parse NPC ID from: ' + res);
           const npcId = idMatch[1];
 
@@ -286,6 +288,7 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       confirmRemoveAllBtn.addEventListener('click', async () => {
         document.getElementById('confirm-remove-all').classList.add('hidden');
         try {
+          await rcon('npcadmin.killall');
           const res = await rcon('npcadmin.removeall');
           if (res.startsWith('ERROR')) throw new Error(res);
           const count = res.replace('OK:', '');
