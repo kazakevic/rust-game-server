@@ -196,7 +196,7 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
                     '</p>' +
                   '</div>' +
                 '</div>' +
-                '<button onclick="removeNpc(\'' + npc.npc_id + '\')" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer">Remove</button>' +
+                '<button onclick="removeNpc(' + "'" + npc.npc_id + "'" + ')" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer">Remove</button>' +
               '</div>';
             }).join('') +
           '</div>';
