@@ -243,8 +243,14 @@ namespace Oxide.Plugins
             };
             SaveNpcToDb(npcPlayer.userID, npcName, null, false, false, 100f);
 
-            // Disable HumanNPC's built-in invulnerability so NPC takes damage by default
-            SetHumanNpcInvulnerability(npcPlayer, false);
+            // Delay so HumanNPC finishes component setup in NextTick
+            var npcId = npcPlayer.userID;
+            timer.Once(0.5f, () =>
+            {
+                var npc = BasePlayer.FindByID(npcId);
+                if (npc != null)
+                    SetHumanNpcInvulnerability(npc, false);
+            });
 
             arg.ReplyWith($"OK:{npcPlayer.userID}");
         }
@@ -356,6 +362,38 @@ namespace Oxide.Plugins
                 return;
             }
 
+            // Check if HumanPlayer component is ready; if not, retry after a delay
+            var humanPlayerCheck = npcPlayer.GetComponent("HumanPlayer");
+            if (humanPlayerCheck == null)
+            {
+                ApplySettingDelayed(npcId, option, value);
+                arg.ReplyWith("OK:updated");
+                return;
+            }
+
+            ApplySetting(npcPlayer, npcId, option, value, arg);
+        }
+
+        private void ApplySettingDelayed(ulong npcId, string option, string value, int retries = 3)
+        {
+            timer.Once(0.5f, () =>
+            {
+                var npcPlayer = BasePlayer.FindByID(npcId);
+                if (npcPlayer == null) return;
+
+                var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
+                if (humanPlayer == null && retries > 0)
+                {
+                    ApplySettingDelayed(npcId, option, value, retries - 1);
+                    return;
+                }
+
+                ApplySetting(npcPlayer, npcId, option, value, null);
+            });
+        }
+
+        private void ApplySetting(BasePlayer npcPlayer, ulong npcId, string option, string value, ConsoleSystem.Arg arg)
+        {
             switch (option)
             {
                 case "health":
@@ -374,14 +412,14 @@ namespace Oxide.Plugins
                 case "kit":
                     if (Kits == null)
                     {
-                        arg.ReplyWith("ERROR: Kits plugin is not loaded");
+                        arg?.ReplyWith("ERROR: Kits plugin is not loaded");
                         return;
                     }
                     npcPlayer.inventory.Strip();
                     var kitResult = Kits.Call("GiveKit", npcPlayer, value);
                     if (kitResult is string errMsg)
                     {
-                        arg.ReplyWith($"ERROR: Kit failed — {errMsg}");
+                        arg?.ReplyWith($"ERROR: Kit failed — {errMsg}");
                         return;
                     }
                     // Set spawnkit on HumanNPC info so kit persists across respawns
@@ -446,21 +484,13 @@ namespace Oxide.Plugins
                         var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
                         if (humanPlayer == null)
                         {
-                            arg.ReplyWith($"ERROR: NPC has no HumanPlayer component — {option} not applied");
+                            PrintWarning($"HumanPlayer component not found for NPC {npcId} — {option} not applied");
                             return;
                         }
                         var infoField = humanPlayer.GetType().GetField("info");
-                        if (infoField == null)
-                        {
-                            arg.ReplyWith($"ERROR: Could not find info field on NPC");
-                            return;
-                        }
+                        if (infoField == null) return;
                         var info = infoField.GetValue(humanPlayer);
-                        if (info == null)
-                        {
-                            arg.ReplyWith($"ERROR: NPC info object is null");
-                            return;
-                        }
+                        if (info == null) return;
                         SetInfoProperty(info, option, value);
                         HumanNPC.Call("UpdateNPC", npcPlayer, false);
 
@@ -476,17 +506,14 @@ namespace Oxide.Plugins
                     }
                     catch (Exception ex)
                     {
-                        arg.ReplyWith($"ERROR: Failed to set {option} — {ex.Message}");
-                        return;
+                        PrintWarning($"Failed to set {option} on NPC {npcId}: {ex.Message}");
                     }
                     break;
 
                 default:
-                    arg.ReplyWith($"ERROR: Unknown option '{option}'");
+                    arg?.ReplyWith($"ERROR: Unknown option '{option}'");
                     return;
             }
-
-            arg.ReplyWith("OK:updated");
         }
 
         private void SetInfoProperty(object info, string option, string value)

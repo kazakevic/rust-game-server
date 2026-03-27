@@ -219,6 +219,9 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
 
           const npcId = res.replace('OK:', '');
 
+          // Wait for HumanNPC to finish component setup
+          await new Promise(r => setTimeout(r, 600));
+
           // Apply settings
           const settings = [];
           const health = document.querySelector('input[name="npc-health"]').value;
