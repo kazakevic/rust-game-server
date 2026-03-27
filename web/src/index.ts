@@ -10,6 +10,7 @@ import { configPage } from "./views/config";
 import { configsListPage, configsEditPage } from "./views/configs";
 import { npcsPage } from "./views/npcs";
 import { stackSizePage } from "./views/stacksize";
+import { settingsPage, type ServerSettings } from "./views/settings";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 
@@ -318,6 +319,125 @@ const app = new Elysia()
       return new Response(null, { status: 302, headers: { Location: "/config/stacksize?saved=1" } });
     } catch (e: any) {
       return new Response(stackSizePage({ config: null, error: "Failed to save config: " + e.message }), {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+  })
+
+  // Server Settings
+  .get("/settings", async ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    let settings: ServerSettings;
+    let error: string | undefined;
+    let success: string | undefined;
+
+    if (query.saved === "1") success = "Settings saved successfully.";
+
+    const settingsPath = "/cfg/server-settings.json";
+    try {
+      const file = Bun.file(settingsPath);
+      if (await file.exists()) {
+        settings = JSON.parse(await file.text());
+      } else {
+        // Default from env vars on first visit
+        settings = {
+          serverName: process.env.RUST_SERVER_NAME || "Rust Server",
+          serverIdentity: process.env.RUST_SERVER_IDENTITY || "docker",
+          mapSeed: parseInt(process.env.RUST_SERVER_SEED || "12345"),
+          worldSize: parseInt(process.env.RUST_SERVER_WORLDSIZE || "3500"),
+          maxPlayers: parseInt(process.env.RUST_SERVER_MAXPLAYERS || "100"),
+          serverPort: parseInt(process.env.RUST_SERVER_PORT || "28015"),
+          queryPort: parseInt(process.env.RUST_SERVER_QUERYPORT || "28017"),
+          rconPort: parseInt(process.env.RUST_RCON_PORT || "28016"),
+          appPort: parseInt(process.env.RUST_APP_PORT || "28082"),
+          updateOnStart: process.env.RUST_UPDATE_ON_START !== "0",
+          umodEnabled: process.env.UMOD_ENABLED !== "0",
+          serverMode: "vanilla",
+        };
+      }
+    } catch (e: any) {
+      error = "Failed to load settings: " + e.message;
+      settings = {
+        serverName: "Rust Server", serverIdentity: "docker", mapSeed: 12345,
+        worldSize: 3500, maxPlayers: 100, serverPort: 28015, queryPort: 28017,
+        rconPort: 28016, appPort: 28082, updateOnStart: true, umodEnabled: true,
+        serverMode: "vanilla",
+      };
+    }
+
+    return new Response(settingsPage({ settings, error, success }), {
+      headers: { "Content-Type": "text/html" },
+    });
+  })
+
+  .post("/api/settings/save", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    try {
+      const form = body as Record<string, string>;
+
+      const settings: ServerSettings = {
+        serverName: form.serverName || "Rust Server",
+        serverIdentity: form.serverIdentity || "docker",
+        mapSeed: parseInt(form.mapSeed) || 12345,
+        worldSize: parseInt(form.worldSize) || 3500,
+        maxPlayers: parseInt(form.maxPlayers) || 100,
+        serverPort: parseInt(form.serverPort) || 28015,
+        queryPort: parseInt(form.queryPort) || 28017,
+        rconPort: parseInt(form.rconPort) || 28016,
+        appPort: parseInt(form.appPort) || 28082,
+        updateOnStart: String(form.updateOnStart).includes("true"),
+        umodEnabled: String(form.umodEnabled).includes("true"),
+        serverMode: form.serverMode || "vanilla",
+      };
+
+      // Write settings JSON
+      await Bun.write("/cfg/server-settings.json", JSON.stringify(settings, null, 2));
+
+      // Update server.cfg with mode-specific settings
+      const cfgPath = "/cfg/server.cfg";
+      let cfgContent = "";
+      try { cfgContent = readFileSync(cfgPath, "utf-8"); } catch {}
+
+      // Strip existing mode-related lines
+      const modeKeys = ["server.pve", "server.gamemode", "craft.instant", "decay.scale"];
+      const lines = cfgContent.split("\n").filter(l => {
+        const trimmed = l.trim().toLowerCase();
+        return !modeKeys.some(k => trimmed.startsWith(k));
+      });
+
+      // Add mode-specific lines
+      const modeLines: string[] = [];
+      switch (settings.serverMode) {
+        case "pve":
+          modeLines.push("server.pve true");
+          break;
+        case "softcore":
+          modeLines.push("server.pve false");
+          modeLines.push("server.gamemode softcore");
+          break;
+        case "creative":
+          modeLines.push("server.pve true");
+          modeLines.push("craft.instant true");
+          modeLines.push("decay.scale 0");
+          break;
+        case "gungame":
+          modeLines.push("server.pve false");
+          break;
+        default: // vanilla
+          modeLines.push("server.pve false");
+          break;
+      }
+
+      const finalCfg = lines.filter(l => l.trim()).concat(modeLines).join("\n") + "\n";
+      writeFileSync(cfgPath, finalCfg, "utf-8");
+
+      return new Response(null, { status: 302, headers: { Location: "/settings?saved=1" } });
+    } catch (e: any) {
+      return new Response(settingsPage({ settings: null, error: "Failed to save settings: " + e.message }), {
         headers: { "Content-Type": "text/html" },
       });
     }

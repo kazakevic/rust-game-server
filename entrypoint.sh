@@ -6,6 +6,25 @@ STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
 
 cd "${RUST_SERVER_DIR}"
 
+# Load settings from web admin JSON (env vars are fallbacks)
+SETTINGS_FILE="/cfg/server-settings.json"
+if [ -f "${SETTINGS_FILE}" ]; then
+    echo "==> Loading settings from ${SETTINGS_FILE}..."
+    _val=$(jq -r '.serverName // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_NAME="$_val"
+    _val=$(jq -r '.serverIdentity // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_IDENTITY="$_val"
+    _val=$(jq -r '.mapSeed // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_SEED="$_val"
+    _val=$(jq -r '.worldSize // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_WORLDSIZE="$_val"
+    _val=$(jq -r '.maxPlayers // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_MAXPLAYERS="$_val"
+    _val=$(jq -r '.serverPort // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_PORT="$_val"
+    _val=$(jq -r '.queryPort // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_QUERYPORT="$_val"
+    _val=$(jq -r '.rconPort // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_RCON_PORT="$_val"
+    _val=$(jq -r '.appPort // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_APP_PORT="$_val"
+    _val=$(jq -r '.updateOnStart // empty' "${SETTINGS_FILE}")
+    [ "$_val" = "true" ] && RUST_UPDATE_ON_START=1; [ "$_val" = "false" ] && RUST_UPDATE_ON_START=0
+    _val=$(jq -r '.umodEnabled // empty' "${SETTINGS_FILE}")
+    [ "$_val" = "true" ] && UMOD_ENABLED=1; [ "$_val" = "false" ] && UMOD_ENABLED=0
+fi
+
 # Update server if enabled or if server binary is missing (first run)
 if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
     echo "==> Updating Rust Dedicated Server (AppID 258550)..."
