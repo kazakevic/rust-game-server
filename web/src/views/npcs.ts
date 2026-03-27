@@ -165,8 +165,14 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
                 '<div class="flex items-center gap-3">' +
                   '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 text-xs font-mono">' + String(npc.Id).slice(-4) + '</div>' +
                   '<div>' +
-                    '<p class="text-sm font-medium text-zinc-900">' + escapeHtml(npc.Name) + '</p>' +
-                    '<p class="text-xs text-zinc-400">ID: ' + npc.Id + ' &middot; HP: ' + Math.round(npc.Health) + ' &middot; Pos: ' + Math.round(npc.X) + ', ' + Math.round(npc.Y) + ', ' + Math.round(npc.Z) + '</p>' +
+                    '<p class="text-sm font-medium text-zinc-900">' + escapeHtml(npc.Name) +
+                      (npc.Invulnerable ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Invulnerable</span>' : '') +
+                      (npc.Hostile ? ' <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200">Hostile</span>' : '') +
+                    '</p>' +
+                    '<p class="text-xs text-zinc-400">ID: ' + npc.Id + ' &middot; HP: ' + Math.round(npc.Health) +
+                      (npc.Kit ? ' &middot; Kit: ' + escapeHtml(npc.Kit) : '') +
+                      ' &middot; Pos: ' + Math.round(npc.X) + ', ' + Math.round(npc.Y) + ', ' + Math.round(npc.Z) +
+                    '</p>' +
                   '</div>' +
                 '</div>' +
                 '<button onclick="removeNpc(' + npc.Id + ')" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer">Remove</button>' +
