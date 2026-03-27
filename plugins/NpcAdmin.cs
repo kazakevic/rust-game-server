@@ -232,6 +232,8 @@ namespace Oxide.Plugins
                 return;
             }
 
+            Puts($"[Spawn] NPC created: {npcPlayer.userID} name={npcName} pos={position}");
+
             spawnedNpcs.Add(npcPlayer.userID);
             _npcRecords[npcPlayer.userID] = new NpcDbRecord
             {
@@ -248,8 +250,14 @@ namespace Oxide.Plugins
             timer.Once(0.5f, () =>
             {
                 var npc = BasePlayer.FindByID(npcId);
-                if (npc != null)
-                    SetHumanNpcInvulnerability(npc, false);
+                if (npc == null)
+                {
+                    Puts($"[Spawn] Timer: NPC {npcId} not found after 0.5s");
+                    return;
+                }
+                var hp = npc.GetComponent("HumanPlayer");
+                Puts($"[Spawn] Timer: NPC {npcId} HumanPlayer component = {(hp != null ? "found" : "NULL")}");
+                SetHumanNpcInvulnerability(npc, false);
             });
 
             arg.ReplyWith($"OK:{npcPlayer.userID}");
@@ -364,8 +372,10 @@ namespace Oxide.Plugins
 
             // Check if HumanPlayer component is ready; if not, retry after a delay
             var humanPlayerCheck = npcPlayer.GetComponent("HumanPlayer");
+            Puts($"[Set] NPC {npcId} option={option} value={value} HumanPlayer={humanPlayerCheck != null}");
             if (humanPlayerCheck == null)
             {
+                Puts($"[Set] HumanPlayer not ready, deferring {option} for NPC {npcId}");
                 ApplySettingDelayed(npcId, option, value);
                 arg.ReplyWith("OK:updated");
                 return;
@@ -376,6 +386,7 @@ namespace Oxide.Plugins
 
         private void ApplySettingDelayed(ulong npcId, string option, string value, int retries = 3)
         {
+            Puts($"[SetDelayed] NPC {npcId} option={option} retries={retries}");
             timer.Once(0.5f, () =>
             {
                 var npcPlayer = BasePlayer.FindByID(npcId);
@@ -437,7 +448,7 @@ namespace Oxide.Plugins
                                     var spawnkitField = info.GetType().GetField("spawnkit");
                                     if (spawnkitField != null)
                                         spawnkitField.SetValue(info, value);
-                                    HumanNPC.Call("UpdateNPC", npcPlayer, false);
+                                    HumanNPC.Call("UpdateNPC", npcPlayer, true);
                                 }
                             }
                         }
@@ -492,7 +503,7 @@ namespace Oxide.Plugins
                         var info = infoField.GetValue(humanPlayer);
                         if (info == null) return;
                         SetInfoProperty(info, option, value);
-                        HumanNPC.Call("UpdateNPC", npcPlayer, false);
+                        HumanNPC.Call("UpdateNPC", npcPlayer, true);
 
                         if (option == "hostile" && _npcRecords.ContainsKey(npcId))
                         {
@@ -642,19 +653,29 @@ namespace Oxide.Plugins
             try
             {
                 var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
-                if (humanPlayer != null)
-                {
-                    var infoField = humanPlayer.GetType().GetField("info");
-                    if (infoField != null)
-                    {
-                        var info = infoField.GetValue(humanPlayer);
-                        if (info != null)
-                        {
-                            SetInfoProperty(info, "invulnerable", invuln.ToString());
-                            HumanNPC.Call("UpdateNPC", npcPlayer, false);
-                        }
-                    }
-                }
+                Puts($"[SetInvuln] NPC {npcPlayer.userID} invuln={invuln} HumanPlayer={humanPlayer != null}");
+                if (humanPlayer == null) return;
+
+                var infoField = humanPlayer.GetType().GetField("info");
+                Puts($"[SetInvuln] infoField={infoField != null}");
+                if (infoField == null) return;
+
+                var info = infoField.GetValue(humanPlayer);
+                Puts($"[SetInvuln] info={info != null}");
+                if (info == null) return;
+
+                // Log current value before change
+                var invulnField = info.GetType().GetField("invulnerability");
+                if (invulnField != null)
+                    Puts($"[SetInvuln] Before: invulnerability={invulnField.GetValue(info)}");
+
+                SetInfoProperty(info, "invulnerable", invuln.ToString());
+
+                if (invulnField != null)
+                    Puts($"[SetInvuln] After: invulnerability={invulnField.GetValue(info)}");
+
+                HumanNPC.Call("UpdateNPC", npcPlayer, true);
+                Puts($"[SetInvuln] UpdateNPC called with save=true");
             }
             catch (Exception ex)
             {
