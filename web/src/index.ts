@@ -744,7 +744,7 @@ const app = new Elysia()
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 
-  .listen({ hostname: "0.0.0.0", port: PORT, serverName: "RustGG" });
+  .listen({ hostname: "0.0.0.0", port: PORT });
 
 webLog.info("system", `RustGG admin dashboard started on port ${PORT}`);
 console.log(`RustGG admin dashboard running at http://localhost:${PORT}`);
