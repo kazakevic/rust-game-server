@@ -27,7 +27,7 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
     ${data.error ? `<div class="mt-4">${alert(data.error, "error")}</div>` : ""}
     ${data.success ? `<div class="mt-4">${alert('Settings saved successfully. <form method="POST" action="/api/server/restart" style="display:inline"><button type="submit" class="underline font-medium hover:opacity-80">Restart server now</button></form> to apply changes.', "success")}</div>` : ""}
 
-    <form method="POST" action="/api/settings/save" class="mt-6 space-y-6">
+    <form method="POST" action="/api/server/settings/save" class="mt-6 space-y-6">
 
       ${section("Server Identity", `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

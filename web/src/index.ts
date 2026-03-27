@@ -325,7 +325,7 @@ const app = new Elysia()
   })
 
   // Server Settings
-  .get("/settings", async ({ headers, query }) => {
+  .get("/server/settings", async ({ headers, query }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
@@ -372,7 +372,7 @@ const app = new Elysia()
     });
   })
 
-  .post("/api/settings/save", async ({ headers, body }) => {
+  .post("/api/server/settings/save", async ({ headers, body }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
@@ -435,7 +435,7 @@ const app = new Elysia()
       const finalCfg = lines.filter(l => l.trim()).concat(modeLines).join("\n") + "\n";
       writeFileSync(cfgPath, finalCfg, "utf-8");
 
-      return new Response(null, { status: 302, headers: { Location: "/settings?saved=1" } });
+      return new Response(null, { status: 302, headers: { Location: "/server/settings?saved=1" } });
     } catch (e: any) {
       return new Response(settingsPage({ settings: null, error: "Failed to save settings: " + e.message }), {
         headers: { "Content-Type": "text/html" },
