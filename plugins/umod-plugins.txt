@@ -20,3 +20,4 @@ NoGiveNotices
 InstantCraft
 BGrade
 RecyclerSpeed
+QuickSmelt
