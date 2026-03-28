@@ -26,6 +26,15 @@ namespace Oxide.Plugins
 
         private Dictionary<ulong, PlayerData> _playerCache = new Dictionary<ulong, PlayerData>();
 
+        // Track damage dealt to players for assist XP
+        private Dictionary<ulong, Dictionary<ulong, float>> _damageTracker = new Dictionary<ulong, Dictionary<ulong, float>>();
+
+        // Track who last killed each player for revenge kills
+        private Dictionary<ulong, ulong> _lastKilledBy = new Dictionary<ulong, ulong>();
+
+        // Track whether first blood has been claimed this session
+        private bool _firstBloodClaimed = false;
+
         private const string PermAdmin = "gungame.admin";
 
         // CUI panel names
@@ -132,6 +141,21 @@ namespace Oxide.Plugins
 
             [JsonProperty("XPLossOnDeathPercent")]
             public float XPLossOnDeathPercent { get; set; } = 0.1f;
+
+            [JsonProperty("AssistXP")]
+            public int AssistXP { get; set; } = 20;
+
+            [JsonProperty("AssistDamageThreshold")]
+            public float AssistDamageThreshold { get; set; } = 0.3f;
+
+            [JsonProperty("RevengeKillBonusXP")]
+            public int RevengeKillBonusXP { get; set; } = 30;
+
+            [JsonProperty("FirstBloodBonusXP")]
+            public int FirstBloodBonusXP { get; set; } = 100;
+
+            [JsonProperty("UnderdogBonusPerLevel")]
+            public float UnderdogBonusPerLevel { get; set; } = 0.2f;
 
             [JsonProperty("AutoSaveIntervalSeconds")]
             public int AutoSaveIntervalSeconds { get; set; } = 300;
@@ -245,6 +269,10 @@ namespace Oxide.Plugins
                 ["StreakAnnounce"] = "<color=#ff6600>{0}</color> is on a <color=#ffff00>{1}</color> kill streak! ({2})",
                 ["StreakEnded"] = "<color=#ff6600>{0}</color> ended <color=#ffff00>{1}</color>'s {2} kill streak!",
                 ["XPLost"] = "You lost <color=#ff4444>-{0} XP</color> on death ({1} total) — Level {2}",
+                ["AssistXP"] = "You gained <color=#00ff00>+{0} XP</color> (assist on {1}) — Level {2}",
+                ["RevengeKill"] = "<color=#ff4444>REVENGE!</color> +{0} bonus XP for avenging your death!",
+                ["FirstBlood"] = "<color=#ff0000>FIRST BLOOD!</color> <color=#ffff00>{0}</color> draws first blood and earns <color=#00ff00>+{1} XP</color>!",
+                ["UnderdogBonus"] = "+{0} underdog bonus XP (level difference)",
             }, this);
         }
 
@@ -614,6 +642,10 @@ namespace Oxide.Plugins
             if (Kits == null)
                 PrintWarning("Kits plugin not found! Gun Game requires the Kits plugin to equip weapons.");
 
+            _firstBloodClaimed = false;
+            _damageTracker.Clear();
+            _lastKilledBy.Clear();
+
             OpenDatabase();
 
             // Recalculate levels and refresh UI for all online players (handles plugin reload / config change)
@@ -673,6 +705,9 @@ namespace Oxide.Plugins
             _streakTimers.Clear();
 
             _autoSaveTimer?.Destroy();
+
+            _damageTracker.Clear();
+            _lastKilledBy.Clear();
 
             SaveAllPlayers();
             CloseDatabase();
@@ -917,6 +952,26 @@ namespace Oxide.Plugins
             return player.IsNpc || !player.userID.IsSteamId();
         }
 
+        // Track damage dealt for assist XP
+        private void OnPlayerAttack(BasePlayer attacker, HitInfo info)
+        {
+            if (attacker == null || info == null) return;
+            var victim = info.HitEntity as BasePlayer;
+            if (victim == null || IsNpc(attacker) || IsNpc(victim)) return;
+            if (attacker.userID == victim.userID) return;
+
+            float damage = info.damageTypes.Total();
+            if (damage <= 0) return;
+
+            if (!_damageTracker.ContainsKey(victim.userID))
+                _damageTracker[victim.userID] = new Dictionary<ulong, float>();
+
+            if (!_damageTracker[victim.userID].ContainsKey(attacker.userID))
+                _damageTracker[victim.userID][attacker.userID] = 0f;
+
+            _damageTracker[victim.userID][attacker.userID] += damage;
+        }
+
         // HumanNPC hook — called when a HumanNPC bot is killed
         private void OnKillNPC(BasePlayer npc, HitInfo info)
         {
@@ -1017,8 +1072,17 @@ namespace Oxide.Plugins
             // Remove spawn protection from victim (cleanup)
             SpawnProtection?.Call("RemoveProtection", victim);
 
+            // Award assist XP to other players who dealt significant damage
+            AwardAssistXP(victim.userID, killer?.userID ?? 0);
+
+            // Clear damage tracking for the victim
+            _damageTracker.Remove(victim.userID);
+
             if (killer == null || killer == victim) return;
             if (killer.userID == victim.userID) return;
+
+            // Track revenge — record who killed the victim
+            _lastKilledBy[victim.userID] = killer.userID;
 
             // Track killer stats
             var killerData2 = GetOrCreatePlayer(killer);
@@ -1043,6 +1107,40 @@ namespace Oxide.Plugins
             if (streakMultiplier > 1f)
                 xpEarned = (int)(xpEarned * streakMultiplier);
 
+            // Underdog bonus — extra XP for killing higher-level players
+            int underdogBonus = 0;
+            if (_config.UnderdogBonusPerLevel > 0)
+            {
+                int levelDiff = victimDataNormal.Level - killerData2.Level;
+                if (levelDiff > 0)
+                {
+                    underdogBonus = (int)(xpEarned * levelDiff * _config.UnderdogBonusPerLevel);
+                    xpEarned += underdogBonus;
+                }
+            }
+
+            // Revenge kill bonus
+            int revengeBonus = 0;
+            if (_config.RevengeKillBonusXP > 0 && _lastKilledBy.TryGetValue(killer.userID, out ulong lastKiller))
+            {
+                if (lastKiller == victim.userID)
+                {
+                    revengeBonus = _config.RevengeKillBonusXP;
+                    xpEarned += revengeBonus;
+                    _lastKilledBy.Remove(killer.userID);
+                }
+            }
+
+            // First blood bonus
+            int firstBloodBonus = 0;
+            if (!_firstBloodClaimed && _config.FirstBloodBonusXP > 0)
+            {
+                _firstBloodClaimed = true;
+                firstBloodBonus = _config.FirstBloodBonusXP;
+                xpEarned += firstBloodBonus;
+                PrintToChat($"{_config.ChatPrefix} {Lang("FirstBlood", null, killer.displayName, firstBloodBonus)}");
+            }
+
             killerData2.XP += xpEarned;
             killerData2.Dirty = true;
 
@@ -1051,6 +1149,12 @@ namespace Oxide.Plugins
 
             // Notify killer with progress bar
             ShowXPGain(killer, killerData2, xpEarned, "XPGained");
+
+            // Show bonus notifications
+            if (revengeBonus > 0)
+                killer.ChatMessage($"{_config.ChatPrefix} {Lang("RevengeKill", killer, revengeBonus)}");
+            if (underdogBonus > 0)
+                killer.ChatMessage($"{_config.ChatPrefix} {Lang("UnderdogBonus", killer, underdogBonus)}");
 
             if (didLevelUp)
                 ShowLevelUp(killer, killerData2);
@@ -1113,6 +1217,44 @@ namespace Oxide.Plugins
                     multiplier = reward.XPMultiplier;
             }
             return multiplier;
+        }
+
+        private void AwardAssistXP(ulong victimId, ulong killerId)
+        {
+            if (_config.AssistXP <= 0) return;
+            if (!_damageTracker.TryGetValue(victimId, out var damageMap)) return;
+
+            float totalDamage = 0f;
+            foreach (var dmg in damageMap.Values)
+                totalDamage += dmg;
+
+            if (totalDamage <= 0f) return;
+
+            foreach (var kvp in damageMap)
+            {
+                ulong assistPlayerId = kvp.Key;
+                if (assistPlayerId == killerId) continue; // Killer already gets full XP
+
+                float damagePercent = kvp.Value / totalDamage;
+                if (damagePercent < _config.AssistDamageThreshold) continue;
+
+                if (!_playerCache.TryGetValue(assistPlayerId, out PlayerData assistData)) continue;
+
+                var assistPlayer = BasePlayer.FindByID(assistPlayerId);
+                if (assistPlayer == null || !assistPlayer.IsConnected) continue;
+
+                int assistXP = (int)(_config.AssistXP * _config.DifficultyMultiplier);
+                assistData.XP += assistXP;
+                assistData.Dirty = true;
+
+                bool leveledUp = CheckLevelUp(assistData);
+
+                ShowXPGain(assistPlayer, assistData, assistXP, "AssistXP");
+                if (leveledUp)
+                    ShowLevelUp(assistPlayer, assistData);
+
+                SavePlayer(assistData);
+            }
         }
 
         private void HandleKillStreak(BasePlayer killer, PlayerData data)
@@ -1200,6 +1342,9 @@ namespace Oxide.Plugins
             {
                 Puts("New map save detected — wiping Gun Game data...");
                 WipeDatabase();
+                _firstBloodClaimed = false;
+                _damageTracker.Clear();
+                _lastKilledBy.Clear();
             }
         }
 
@@ -1229,6 +1374,10 @@ namespace Oxide.Plugins
                 data.CurrentStreak = 0;
                 SavePlayer(data);
             }
+
+            // Clean up tracking data
+            _damageTracker.Remove(player.userID);
+            _lastKilledBy.Remove(player.userID);
         }
 
         #endregion
@@ -1819,6 +1968,9 @@ namespace Oxide.Plugins
                     if (args.Length >= 2 && args[1].ToLower() == "confirm")
                     {
                         WipeDatabase();
+                        _firstBloodClaimed = false;
+                        _damageTracker.Clear();
+                        _lastKilledBy.Clear();
 
                         // Reset bounty
                         BountySystem?.Call("ClearBounty");
