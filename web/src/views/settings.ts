@@ -23,6 +23,7 @@ export interface ServerSettings {
   radiation: boolean;
   idleKick: number;
   idleKickMode: string;
+  gslt: string;
   updateOnStart: boolean;
   umodEnabled: boolean;
   serverMode: string;
@@ -124,6 +125,12 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
           ${checkbox({ name: "radiation", label: "Radiation zones enabled", checked: s?.radiation ?? true })}
         </div>
       `, { description: "In-game behavior and performance settings." })}
+
+      ${section("Steam Authentication", `
+        <div class="max-w-md">
+          ${input({ name: "gslt", label: "Game Server Login Token (GSLT)", value: s?.gslt ?? "", placeholder: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", hint: 'Required for your server to appear in the server browser. <a href="https://steamcommunity.com/dev/managegameservers" target="_blank" rel="noopener" class="underline text-zinc-500 hover:text-zinc-700">Generate token</a> with App ID 252490.' })}
+        </div>
+      `, { description: "Steam authentication for server browser listing." })}
 
       ${section("Network", `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

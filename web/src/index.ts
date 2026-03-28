@@ -511,6 +511,7 @@ const app = new Elysia()
           radiation: true,
           idleKick: 30,
           idleKickMode: "1",
+          gslt: process.env.RUST_SERVER_GSLT || "",
           updateOnStart: process.env.RUST_UPDATE_ON_START !== "0",
           umodEnabled: process.env.UMOD_ENABLED !== "0",
           serverMode: "vanilla",
@@ -524,7 +525,7 @@ const app = new Elysia()
         mapSeed: 12345, worldSize: 3500, maxPlayers: 100, saveInterval: 600,
         serverPort: 28015, queryPort: 28017, rconPort: 28016, appPort: 28082,
         tickrate: 30, globalChat: true, stability: true, radiation: true,
-        idleKick: 30, idleKickMode: "1",
+        idleKick: 30, idleKickMode: "1", gslt: "",
         updateOnStart: true, umodEnabled: true, serverMode: "vanilla",
       };
     }
@@ -565,6 +566,7 @@ const app = new Elysia()
         idleKickMode: form.idleKickMode || "1",
         updateOnStart: String(form.updateOnStart).includes("true"),
         umodEnabled: String(form.umodEnabled).includes("true"),
+        gslt: form.gslt || "",
         serverMode: form.serverMode || "vanilla",
       };
 
