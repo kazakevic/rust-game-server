@@ -422,18 +422,27 @@ namespace Oxide.Plugins
                 return;
             }
 
-            // Kill first if alive
+            // Clear invulnerability in both our system and HumanNPC before killing
+            invulnerableNpcs.Remove(npcId);
             var npcPlayer = BasePlayer.FindByID(npcId);
-            if (npcPlayer != null && !npcPlayer.IsDead())
+            if (npcPlayer != null)
             {
-                // Temporarily remove invulnerability so Kill works
-                invulnerableNpcs.Remove(npcId);
-                npcPlayer.Die();
+                SetHumanNpcInvulnerability(npcPlayer, false);
+                if (!npcPlayer.IsDead())
+                    npcPlayer.Die();
             }
 
-            HumanNPC.Call("RemoveNPC", npcId);
+            // RemoveNPC expects string userID in most HumanNPC versions
+            HumanNPC.Call("RemoveNPC", npcId.ToString());
             spawnedNpcs.Remove(npcId);
-            invulnerableNpcs.Remove(npcId);
+
+            // Force-kill if entity still exists after RemoveNPC
+            npcPlayer = BasePlayer.FindByID(npcId);
+            if (npcPlayer != null && !npcPlayer.IsDead())
+            {
+                npcPlayer.Kill();
+                Puts($"[Remove] Force-killed NPC {npcId} after RemoveNPC");
+            }
 
             _sqlite.ExecuteNonQuery(
                 Sql.Builder.Append("UPDATE spawned_npcs SET status = 'removed' WHERE npc_id = @0;", npcId.ToString()), _db);
@@ -453,14 +462,22 @@ namespace Oxide.Plugins
             int count = 0;
             foreach (var npcId in spawnedNpcs.ToList())
             {
+                invulnerableNpcs.Remove(npcId);
                 var npcPlayer = BasePlayer.FindByID(npcId);
-                if (npcPlayer != null && !npcPlayer.IsDead())
+                if (npcPlayer != null)
                 {
-                    invulnerableNpcs.Remove(npcId);
-                    npcPlayer.Die();
+                    SetHumanNpcInvulnerability(npcPlayer, false);
+                    if (!npcPlayer.IsDead())
+                        npcPlayer.Die();
                 }
 
-                HumanNPC.Call("RemoveNPC", npcId);
+                HumanNPC.Call("RemoveNPC", npcId.ToString());
+
+                // Force-kill if entity still exists
+                npcPlayer = BasePlayer.FindByID(npcId);
+                if (npcPlayer != null && !npcPlayer.IsDead())
+                    npcPlayer.Kill();
+
                 count++;
             }
 
@@ -652,7 +669,25 @@ namespace Oxide.Plugins
                 var info = infoField.GetValue(humanPlayer);
                 if (info == null) return;
 
-                SetField(info, "invulnerability", invuln);
+                // HumanNPC stores invulnerability as bool in some versions, float in others
+                // Try setting the field with the correct type
+                var field = info.GetType().GetField("invulnerability");
+                if (field != null)
+                {
+                    if (field.FieldType == typeof(bool))
+                        field.SetValue(info, invuln);
+                    else if (field.FieldType == typeof(float))
+                        field.SetValue(info, invuln ? 1f : 0f);
+                    else
+                        field.SetValue(info, invuln);
+                }
+                else
+                {
+                    Puts($"[Invuln] Field 'invulnerability' not found on HumanNPCInfo, listing fields...");
+                    foreach (var f in info.GetType().GetFields())
+                        Puts($"  -> {f.Name} ({f.FieldType.Name})");
+                }
+
                 HumanNPC.Call("UpdateNPC", npcPlayer, true);
             }
             catch (Exception ex)
