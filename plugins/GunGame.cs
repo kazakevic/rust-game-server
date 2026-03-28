@@ -19,7 +19,7 @@ namespace Oxide.Plugins
         #region Fields
 
         [PluginReference]
-        private Plugin Kits;
+        private Plugin Kits, KillFeed, BountySystem, SpawnProtection, GunGameShop;
 
         private readonly Core.SQLite.Libraries.SQLite _sqlite = Interface.Oxide.GetLibrary<Core.SQLite.Libraries.SQLite>();
         private Connection _db;
@@ -34,10 +34,6 @@ namespace Oxide.Plugins
         private const string CUI_LevelUpBanner = "GunGame_LevelUp";
         private const string CUI_ScreenFlash = "GunGame_Flash";
         private const string CUI_StatsBoard = "GunGame_Stats";
-        private const string CUI_Shop = "GunGame_Shop";
-        private const string CUI_KillFeed = "GunGame_KillFeed";
-        private const string CUI_Bounty = "GunGame_Bounty";
-        private const string CUI_SpawnProtection = "GunGame_SpawnProt";
         private const string CUI_StreakPopup = "GunGame_Streak";
 
         // Track active popup timers per player so we can cancel/extend
@@ -48,21 +44,6 @@ namespace Oxide.Plugins
 
         // Track cumulative XP gain within rapid kills
         private Dictionary<ulong, int> _pendingXPDisplay = new Dictionary<ulong, int>();
-
-        // Track which shop category each player is viewing
-        private Dictionary<ulong, int> _shopCategory = new Dictionary<ulong, int>();
-
-        // Spawn protection tracking
-        private Dictionary<ulong, Timer> _spawnProtection = new Dictionary<ulong, Timer>();
-        private HashSet<ulong> _protectedPlayers = new HashSet<ulong>();
-
-        // Kill feed entries
-        private List<KillFeedEntry> _killFeed = new List<KillFeedEntry>();
-        private Timer _killFeedCleanupTimer;
-
-        // Bounty system
-        private ulong _currentBountyTarget;
-        private MapMarkerGenericRadius _bountyMarker;
 
         // Auto-save timer
         private Timer _autoSaveTimer;
@@ -149,17 +130,8 @@ namespace Oxide.Plugins
             [JsonProperty("RefillAmmoOnKill")]
             public bool RefillAmmoOnKill { get; set; } = true;
 
-            [JsonProperty("SpawnProtectionSeconds")]
-            public float SpawnProtectionSeconds { get; set; } = 3.0f;
-
             [JsonProperty("XPLossOnDeathPercent")]
             public float XPLossOnDeathPercent { get; set; } = 0.1f;
-
-            [JsonProperty("BountyMultiplier")]
-            public float BountyMultiplier { get; set; } = 2.0f;
-
-            [JsonProperty("BountyMinKills")]
-            public int BountyMinKills { get; set; } = 5;
 
             [JsonProperty("AutoSaveIntervalSeconds")]
             public int AutoSaveIntervalSeconds { get; set; } = 300;
@@ -173,36 +145,6 @@ namespace Oxide.Plugins
                 new KillStreakReward { Streak = 10, Title = "GODLIKE", XPMultiplier = 2.0f, RewardItemShortname = "ammo.rocket.basic", RewardItemAmount = 1, BroadcastToServer = true },
             };
 
-            [JsonProperty("ShopCategories")]
-            public List<ShopCategory> ShopCategories { get; set; } = new List<ShopCategory>
-            {
-                new ShopCategory
-                {
-                    Name = "Weapon Attachments",
-                    Items = new List<ShopItem>
-                    {
-                        new ShopItem { Shortname = "weapon.mod.lasersight", DisplayName = "Laser Sight", Price = 3 },
-                        new ShopItem { Shortname = "weapon.mod.flashlight", DisplayName = "Flashlight", Price = 2 },
-                        new ShopItem { Shortname = "weapon.mod.holosight", DisplayName = "Holosight", Price = 5 },
-                        new ShopItem { Shortname = "weapon.mod.simplesight", DisplayName = "Simple Sight", Price = 3 },
-                        new ShopItem { Shortname = "weapon.mod.small.scope", DisplayName = "Small Scope", Price = 8 },
-                        new ShopItem { Shortname = "weapon.mod.8x.scope", DisplayName = "8x Scope", Price = 15 },
-                        new ShopItem { Shortname = "weapon.mod.silencer", DisplayName = "Silencer", Price = 10 },
-                        new ShopItem { Shortname = "weapon.mod.muzzleboost", DisplayName = "Muzzle Boost", Price = 5 },
-                        new ShopItem { Shortname = "weapon.mod.muzzlebrake", DisplayName = "Muzzle Brake", Price = 5 },
-                        new ShopItem { Shortname = "weapon.mod.extendedmags", DisplayName = "Extended Mag", Price = 12 },
-                    }
-                }
-            };
-        }
-
-        private class ShopCategory
-        {
-            [JsonProperty("Name")]
-            public string Name { get; set; }
-
-            [JsonProperty("Items")]
-            public List<ShopItem> Items { get; set; } = new List<ShopItem>();
         }
 
         private class KillStreakReward
@@ -226,27 +168,6 @@ namespace Oxide.Plugins
             public bool BroadcastToServer { get; set; }
         }
 
-        private class KillFeedEntry
-        {
-            public string KillerName { get; set; }
-            public string VictimName { get; set; }
-            public string WeaponName { get; set; }
-            public bool IsHeadshot { get; set; }
-            public float Distance { get; set; }
-            public float Timestamp { get; set; }
-        }
-
-        private class ShopItem
-        {
-            [JsonProperty("Shortname")]
-            public string Shortname { get; set; }
-
-            [JsonProperty("DisplayName")]
-            public string DisplayName { get; set; }
-
-            [JsonProperty("Price")]
-            public int Price { get; set; }
-        }
 
         protected override void LoadDefaultConfig()
         {
@@ -316,20 +237,14 @@ namespace Oxide.Plugins
                 ["PlayerNotFound"] = "Player not found.",
                 ["InvalidLevel"] = "Invalid level. Must be between 1 and {0}.",
                 ["NoPermission"] = "You don't have permission to use this command.",
-                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/shop — Open the shop\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
+                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
                 ["KitNotFound"] = "<color=#ff0000>Kit '{0}' not found. Ask an admin to create it.</color>",
                 ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>",
                 ["AnimalKillXP"] = "You gained <color=#00ff00>+{0} XP</color> from an animal kill ({1} total) — Level {2}",
                 ["NPCKillXP"] = "You gained <color=#00ff00>+{0} XP</color> from an NPC kill ({1} total) — Level {2}",
-                ["ShopEmpty"] = "The shop has no items configured.",
-                ["ShopError"] = "<color=#ff0000>Something went wrong with your purchase.</color>",
-                ["ShopCantAfford"] = "You can't afford <color=#ffff00>{0}</color>!",
-                ["ShopPurchased"] = "You purchased <color=#4CAF50>{0}</color> for <color=#ffff00>{1}</color> currency!",
                 ["StreakAnnounce"] = "<color=#ff6600>{0}</color> is on a <color=#ffff00>{1}</color> kill streak! ({2})",
                 ["StreakEnded"] = "<color=#ff6600>{0}</color> ended <color=#ffff00>{1}</color>'s {2} kill streak!",
-                ["BountyNew"] = "<color=#ff4444>BOUNTY</color>: <color=#ffff00>{0}</color> is the kill leader! Kill them for <color=#00ff00>{1}x XP</color>!",
                 ["XPLost"] = "You lost <color=#ff4444>-{0} XP</color> on death ({1} total) — Level {2}",
-                ["SpawnProtected"] = "You are spawn protected for {0}s. Shooting removes protection.",
             }, this);
         }
 
@@ -710,16 +625,13 @@ namespace Oxide.Plugins
                     RecalculateLevel(data);
                     EquipKit(player, data.Level);
                     CreateXPBar(player, data);
-                    UpdateBountyUI(player);
+                    BountySystem?.Call("RefreshBountyUI", player);
                 }
             });
 
             // Auto-save timer
             if (_config.AutoSaveIntervalSeconds > 0)
                 _autoSaveTimer = timer.Every(_config.AutoSaveIntervalSeconds, () => SaveAllPlayers());
-
-            // Kill feed cleanup timer
-            _killFeedCleanupTimer = timer.Every(2f, () => CleanupKillFeed());
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -733,7 +645,6 @@ namespace Oxide.Plugins
                 {
                     var data = GetOrCreatePlayer(player);
                     CreateXPBar(player, data);
-                    UpdateBountyUI(player);
                 }
             });
         }
@@ -748,10 +659,6 @@ namespace Oxide.Plugins
                 CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
                 CuiHelper.DestroyUi(player, CUI_ScreenFlash);
                 CuiHelper.DestroyUi(player, CUI_StatsBoard);
-                CuiHelper.DestroyUi(player, CUI_Shop);
-                CuiHelper.DestroyUi(player, CUI_KillFeed);
-                CuiHelper.DestroyUi(player, CUI_Bounty);
-                CuiHelper.DestroyUi(player, CUI_SpawnProtection);
                 CuiHelper.DestroyUi(player, CUI_StreakPopup);
             }
 
@@ -760,18 +667,12 @@ namespace Oxide.Plugins
             foreach (var t in _levelUpTimers.Values) t?.Destroy();
             foreach (var t in _flashTimers.Values) t?.Destroy();
             foreach (var t in _streakTimers.Values) t?.Destroy();
-            foreach (var t in _spawnProtection.Values) t?.Destroy();
             _xpPopupTimers.Clear();
             _levelUpTimers.Clear();
             _flashTimers.Clear();
             _streakTimers.Clear();
-            _spawnProtection.Clear();
-            _protectedPlayers.Clear();
 
             _autoSaveTimer?.Destroy();
-            _killFeedCleanupTimer?.Destroy();
-
-            RemoveBountyMarker();
 
             SaveAllPlayers();
             CloseDatabase();
@@ -1114,7 +1015,7 @@ namespace Oxide.Plugins
             SavePlayer(victimDataNormal);
 
             // Remove spawn protection from victim (cleanup)
-            RemoveSpawnProtection(victim);
+            SpawnProtection?.Call("RemoveProtection", victim);
 
             if (killer == null || killer == victim) return;
             if (killer.userID == victim.userID) return;
@@ -1129,9 +1030,13 @@ namespace Oxide.Plugins
             // Calculate and award XP
             int xpEarned = CalculateXP(killerData2, info);
 
-            // Bounty multiplier
-            if (victim.userID == _currentBountyTarget && _currentBountyTarget != 0)
-                xpEarned = (int)(xpEarned * _config.BountyMultiplier);
+            // Bounty multiplier (from BountySystem plugin)
+            if (BountySystem != null)
+            {
+                float bountyMult = (float)(BountySystem.Call("GetBountyMultiplier", victim.userID) ?? 1f);
+                if (bountyMult > 1f)
+                    xpEarned = (int)(xpEarned * bountyMult);
+            }
 
             // Kill streak XP multiplier
             float streakMultiplier = GetStreakXPMultiplier(killerData2.CurrentStreak);
@@ -1163,12 +1068,15 @@ namespace Oxide.Plugins
 
             GiveKillReward(killer);
 
-            // Kill feed
-            string weaponName = info?.Weapon?.GetItem()?.info?.displayName?.english ?? "Unknown";
-            float distance = info?.IsProjectile() == true ? info.ProjectileDistance : 0f;
-            AddKillFeedEntry(killer.displayName, victim.displayName, weaponName, info?.isHeadshot == true, distance);
+            // Kill feed (via KillFeed plugin)
+            if (KillFeed != null)
+            {
+                string weaponName = info?.Weapon?.GetItem()?.info?.displayName?.english ?? "Unknown";
+                float distance = info?.IsProjectile() == true ? info.ProjectileDistance : 0f;
+                KillFeed.Call("AddEntry", killer.displayName, victim.displayName, weaponName, info?.isHeadshot == true, distance);
+            }
 
-            // Update bounty
+            // Update bounty (via BountySystem plugin)
             UpdateBountyTarget();
 
             SavePlayer(killerData2);
@@ -1248,84 +1156,6 @@ namespace Oxide.Plugins
             weapon.SendNetworkUpdateImmediate();
         }
 
-        #region Spawn Protection
-
-        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
-        {
-            if (entity is BasePlayer victim && _protectedPlayers.Contains(victim.userID))
-            {
-                // Block all damage to spawn-protected players
-                info.damageTypes.ScaleAll(0f);
-                return true;
-            }
-            return null;
-        }
-
-        private void OnWeaponFired(BaseProjectile projectile, BasePlayer player, ItemModProjectile mod, ProtoBuf.ProjectileShoot projectiles)
-        {
-            if (player != null && _protectedPlayers.Contains(player.userID))
-                RemoveSpawnProtection(player);
-        }
-
-        private void ApplySpawnProtection(BasePlayer player)
-        {
-            if (_config.SpawnProtectionSeconds <= 0) return;
-
-            ulong id = player.userID;
-            RemoveSpawnProtection(player); // Clean up any existing
-
-            _protectedPlayers.Add(id);
-            ShowSpawnProtectionBadge(player);
-
-            _spawnProtection[id] = timer.Once(_config.SpawnProtectionSeconds, () =>
-            {
-                RemoveSpawnProtection(player);
-            });
-        }
-
-        private void RemoveSpawnProtection(BasePlayer player)
-        {
-            if (player == null) return;
-            ulong id = player.userID;
-
-            _protectedPlayers.Remove(id);
-
-            if (_spawnProtection.TryGetValue(id, out Timer t))
-            {
-                t?.Destroy();
-                _spawnProtection.Remove(id);
-            }
-
-            if (player.IsConnected)
-                CuiHelper.DestroyUi(player, CUI_SpawnProtection);
-        }
-
-        private void ShowSpawnProtectionBadge(BasePlayer player)
-        {
-            CuiHelper.DestroyUi(player, CUI_SpawnProtection);
-
-            var elements = new CuiElementContainer();
-
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "0.0 0.6 1.0 0.15" },
-                RectTransform = { AnchorMin = "0.4 0.85", AnchorMax = "0.6 0.89" },
-                CursorEnabled = false,
-                FadeOut = 0.5f
-            }, "Hud", CUI_SpawnProtection);
-
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = "SPAWN PROTECTED", FontSize = 11, Align = TextAnchor.MiddleCenter, Color = "0.3 0.8 1.0 1.0", Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" },
-                FadeOut = 0.5f
-            }, CUI_SpawnProtection);
-
-            CuiHelper.AddUi(player, elements);
-        }
-
-        #endregion
-
         private void GiveKillReward(BasePlayer player)
         {
             if (string.IsNullOrEmpty(_config.KillRewardItemShortname)) return;
@@ -1358,8 +1188,8 @@ namespace Oxide.Plugins
                 {
                     EquipKit(player, data.Level);
                     CreateXPBar(player, data);
-                    ApplySpawnProtection(player);
-                    UpdateBountyUI(player);
+                    SpawnProtection?.Call("ApplyProtection", player);
+                    BountySystem?.Call("RefreshBountyUI", player);
                 }
             });
         }
@@ -1383,10 +1213,6 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, CUI_LevelUpBanner);
             CuiHelper.DestroyUi(player, CUI_ScreenFlash);
             CuiHelper.DestroyUi(player, CUI_StatsBoard);
-            CuiHelper.DestroyUi(player, CUI_Shop);
-            CuiHelper.DestroyUi(player, CUI_KillFeed);
-            CuiHelper.DestroyUi(player, CUI_Bounty);
-            CuiHelper.DestroyUi(player, CUI_SpawnProtection);
             CuiHelper.DestroyUi(player, CUI_StreakPopup);
 
             // Clean up timers
@@ -1396,9 +1222,6 @@ namespace Oxide.Plugins
             if (_flashTimers.TryGetValue(id, out Timer t3)) { t3?.Destroy(); _flashTimers.Remove(id); }
             if (_streakTimers.TryGetValue(id, out Timer t4)) { t4?.Destroy(); _streakTimers.Remove(id); }
             _pendingXPDisplay.Remove(id);
-            _shopCategory.Remove(id);
-
-            RemoveSpawnProtection(player);
 
             // Reset current streak (they left)
             if (_playerCache.TryGetValue(player.userID, out PlayerData data))
@@ -1406,10 +1229,6 @@ namespace Oxide.Plugins
                 data.CurrentStreak = 0;
                 SavePlayer(data);
             }
-
-            // If bounty target disconnected, re-evaluate
-            if (player.userID == _currentBountyTarget)
-                UpdateBountyTarget();
         }
 
         #endregion
@@ -1866,445 +1685,6 @@ namespace Oxide.Plugins
 
         #endregion
 
-        #region CUI - Shop
-
-        private void ShowShop(BasePlayer player, int categoryIndex = 0)
-        {
-            if (_config.ShopCategories == null || _config.ShopCategories.Count == 0)
-            {
-                Message(player, "ShopEmpty");
-                return;
-            }
-
-            categoryIndex = Mathf.Clamp(categoryIndex, 0, _config.ShopCategories.Count - 1);
-            _shopCategory[player.userID] = categoryIndex;
-
-            CuiHelper.DestroyUi(player, CUI_Shop);
-
-            var elements = new CuiElementContainer();
-            var category = _config.ShopCategories[categoryIndex];
-
-            // Count player's currency
-            int balance = GetCurrencyBalance(player);
-            string currencyName = _config.KillRewardItemShortname;
-            var currencyDef = ItemManager.FindItemDefinition(currencyName);
-            string currencyDisplay = currencyDef != null ? currencyDef.displayName.english : currencyName;
-
-            // Full-screen dim background (click to close)
-            elements.Add(new CuiButton
-            {
-                Button = { Command = "gungame.closeshop", Color = "0 0 0 0.7" },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" },
-                Text = { Text = "" }
-            }, "Overlay", CUI_Shop);
-
-            // Main panel
-            string mainPanel = CUI_Shop + "_Main";
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "0.08 0.08 0.08 0.97", Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
-                RectTransform = { AnchorMin = "0.15 0.12", AnchorMax = "0.85 0.88" },
-                CursorEnabled = true
-            }, CUI_Shop, mainPanel);
-
-            // Title bar
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = ColorAccent },
-                RectTransform = { AnchorMin = "0 0.93", AnchorMax = "1 1" }
-            }, mainPanel, mainPanel + "_Title");
-
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = "SHOP", FontSize = 18, Align = TextAnchor.MiddleLeft, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0.02 0", AnchorMax = "0.3 1" }
-            }, mainPanel + "_Title");
-
-            // Balance display in title bar
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = $"Balance: {balance} {currencyDisplay}", FontSize = 13, Align = TextAnchor.MiddleRight, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0.5 0", AnchorMax = "0.92 1" }
-            }, mainPanel + "_Title");
-
-            // Close button
-            elements.Add(new CuiButton
-            {
-                Button = { Command = "gungame.closeshop", Color = "0.9 0.25 0.2 0.85" },
-                RectTransform = { AnchorMin = "0.955 0.935", AnchorMax = "0.99 0.99" },
-                Text = { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" }
-            }, mainPanel);
-
-            // ─── LEFT SIDEBAR: Categories ───
-            string sidebar = mainPanel + "_Sidebar";
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "0.06 0.06 0.06 0.95" },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.22 0.93" }
-            }, mainPanel, sidebar);
-
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = "CATEGORIES", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0 0.92", AnchorMax = "1 1" }
-            }, sidebar);
-
-            for (int i = 0; i < _config.ShopCategories.Count; i++)
-            {
-                float top = 0.92f - i * 0.08f;
-                float bottom = top - 0.07f;
-                bool isActive = i == categoryIndex;
-                string btnColor = isActive ? "1.0 0.4 0.0 0.3" : "0.15 0.15 0.15 0.6";
-                string textColor = isActive ? ColorAccent : ColorWhiteSoft;
-
-                elements.Add(new CuiButton
-                {
-                    Button = { Command = $"gungame.shopcategory {i}", Color = btnColor },
-                    RectTransform = { AnchorMin = $"0.05 {bottom:F3}", AnchorMax = $"0.95 {top:F3}" },
-                    Text = { Text = _config.ShopCategories[i].Name, FontSize = 11, Align = TextAnchor.MiddleCenter, Color = textColor, Font = "robotocondensed-bold.ttf" }
-                }, sidebar);
-            }
-
-            // ─── RIGHT AREA: Items Grid ───
-            string grid = mainPanel + "_Grid";
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "0 0 0 0" },
-                RectTransform = { AnchorMin = "0.23 0", AnchorMax = "1 0.93" }
-            }, mainPanel, grid);
-
-            // Category header
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = category.Name.ToUpper(), FontSize = 14, Align = TextAnchor.MiddleLeft, Color = ColorAccent, Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0.02 0.92", AnchorMax = "0.98 1" }
-            }, grid);
-
-            // Separator line
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "1.0 0.4 0.0 0.3" },
-                RectTransform = { AnchorMin = "0.02 0.915", AnchorMax = "0.98 0.918" }
-            }, grid);
-
-            // Item cards - 3 columns grid
-            int cols = 3;
-            float cardW = 0.3f;
-            float cardH = 0.27f;
-            float gapX = 0.025f;
-            float gapY = 0.02f;
-            float startX = 0.02f;
-            float startY = 0.88f;
-
-            for (int i = 0; i < category.Items.Count; i++)
-            {
-                var item = category.Items[i];
-                int col = i % cols;
-                int row = i / cols;
-
-                float x1 = startX + col * (cardW + gapX);
-                float y2 = startY - row * (cardH + gapY);
-                float x2 = x1 + cardW;
-                float y1 = y2 - cardH;
-
-                if (y1 < 0.01f) break; // Don't overflow
-
-                string cardName = grid + $"_Item{i}";
-                bool canAfford = balance >= item.Price;
-
-                // Card background
-                elements.Add(new CuiPanel
-                {
-                    Image = { Color = "0.12 0.12 0.12 0.9" },
-                    RectTransform = { AnchorMin = $"{x1:F3} {y1:F3}", AnchorMax = $"{x2:F3} {y2:F3}" }
-                }, grid, cardName);
-
-                // Item image
-                elements.Add(new CuiElement
-                {
-                    Parent = cardName,
-                    Components =
-                    {
-                        new CuiRawImageComponent { Url = $"https://rustlabs.com/img/items180/{item.Shortname}.png", Color = "1 1 1 0.9" },
-                        new CuiRectTransformComponent { AnchorMin = "0.25 0.48", AnchorMax = "0.75 0.95" }
-                    }
-                });
-
-                // Item name
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = item.DisplayName, FontSize = 11, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
-                    RectTransform = { AnchorMin = "0.05 0.32", AnchorMax = "0.95 0.48" }
-                }, cardName);
-
-                // Price
-                string priceColor = canAfford ? ColorGreen : "1.0 0.3 0.3 1.0";
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = $"{item.Price} {currencyDisplay}", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = priceColor, Font = "robotocondensed-regular.ttf" },
-                    RectTransform = { AnchorMin = "0.05 0.2", AnchorMax = "0.95 0.34" }
-                }, cardName);
-
-                // Buy button
-                string buyColor = canAfford ? "0.2 0.7 0.3 0.85" : "0.3 0.3 0.3 0.5";
-                string buyTextColor = canAfford ? ColorWhite : "1.0 1.0 1.0 0.3";
-                string buyCmd = canAfford ? $"gungame.shopbuy {categoryIndex} {i}" : "";
-
-                elements.Add(new CuiButton
-                {
-                    Button = { Command = buyCmd, Color = buyColor },
-                    RectTransform = { AnchorMin = "0.15 0.04", AnchorMax = "0.85 0.19" },
-                    Text = { Text = canAfford ? "BUY" : "CAN'T AFFORD", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = buyTextColor, Font = "robotocondensed-bold.ttf" }
-                }, cardName);
-            }
-
-            if (category.Items.Count == 0)
-            {
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = "No items in this category.", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
-                    RectTransform = { AnchorMin = "0 0.3", AnchorMax = "1 0.7" }
-                }, grid);
-            }
-
-            CuiHelper.AddUi(player, elements);
-        }
-
-        private int GetCurrencyBalance(BasePlayer player)
-        {
-            if (string.IsNullOrEmpty(_config.KillRewardItemShortname)) return 0;
-            int total = 0;
-            foreach (var item in player.inventory.containerMain.itemList.Concat(player.inventory.containerBelt.itemList).Concat(player.inventory.containerWear.itemList))
-            {
-                if (item.info.shortname == _config.KillRewardItemShortname)
-                    total += item.amount;
-            }
-            return total;
-        }
-
-        private bool TakeCurrency(BasePlayer player, int amount)
-        {
-            if (GetCurrencyBalance(player) < amount) return false;
-
-            int remaining = amount;
-            var items = player.inventory.containerMain.itemList.Concat(player.inventory.containerBelt.itemList).Concat(player.inventory.containerWear.itemList)
-                .Where(i => i.info.shortname == _config.KillRewardItemShortname)
-                .ToList();
-
-            foreach (var item in items)
-            {
-                if (remaining <= 0) break;
-
-                if (item.amount <= remaining)
-                {
-                    remaining -= item.amount;
-                    item.RemoveFromContainer();
-                    item.Remove();
-                }
-                else
-                {
-                    item.amount -= remaining;
-                    item.MarkDirty();
-                    remaining = 0;
-                }
-            }
-
-            return remaining <= 0;
-        }
-
-        [ConsoleCommand("gungame.closeshop")]
-        private void CmdCloseShop(ConsoleSystem.Arg arg)
-        {
-            var player = arg.Player();
-            if (player == null) return;
-            CuiHelper.DestroyUi(player, CUI_Shop);
-            _shopCategory.Remove(player.userID);
-        }
-
-        [ConsoleCommand("gungame.shopcategory")]
-        private void CmdShopCategory(ConsoleSystem.Arg arg)
-        {
-            var player = arg.Player();
-            if (player == null) return;
-            int catIndex = arg.GetInt(0, 0);
-            ShowShop(player, catIndex);
-        }
-
-        [ConsoleCommand("gungame.shopbuy")]
-        private void CmdShopBuy(ConsoleSystem.Arg arg)
-        {
-            var player = arg.Player();
-            if (player == null) return;
-
-            int catIndex = arg.GetInt(0, -1);
-            int itemIndex = arg.GetInt(1, -1);
-
-            if (catIndex < 0 || catIndex >= _config.ShopCategories.Count)
-            {
-                Message(player, "ShopError");
-                return;
-            }
-
-            var category = _config.ShopCategories[catIndex];
-            if (itemIndex < 0 || itemIndex >= category.Items.Count)
-            {
-                Message(player, "ShopError");
-                return;
-            }
-
-            var shopItem = category.Items[itemIndex];
-
-            // Verify item exists in game
-            var itemDef = ItemManager.FindItemDefinition(shopItem.Shortname);
-            if (itemDef == null)
-            {
-                Message(player, "ShopError");
-                PrintWarning($"Shop item '{shopItem.Shortname}' not found in game!");
-                return;
-            }
-
-            // Check balance
-            if (GetCurrencyBalance(player) < shopItem.Price)
-            {
-                Message(player, "ShopCantAfford", shopItem.DisplayName);
-                ShowShop(player, catIndex); // Refresh UI
-                return;
-            }
-
-            // Take currency and give item
-            if (!TakeCurrency(player, shopItem.Price))
-            {
-                Message(player, "ShopError");
-                return;
-            }
-
-            var newItem = ItemManager.Create(itemDef, 1);
-            if (newItem == null)
-            {
-                Message(player, "ShopError");
-                return;
-            }
-
-            if (!player.inventory.GiveItem(newItem))
-                newItem.DropAndTossUpwards(player.transform.position);
-
-            Message(player, "ShopPurchased", shopItem.DisplayName, shopItem.Price);
-            Effect.server.Run("assets/bundled/prefabs/fx/notice/item.select.fx.prefab", player.transform.position);
-
-            // Refresh shop UI to update balance
-            ShowShop(player, catIndex);
-        }
-
-        #endregion
-
-        #region CUI - Kill Feed
-
-        private void AddKillFeedEntry(string killerName, string victimName, string weaponName, bool isHeadshot, float distance)
-        {
-            _killFeed.Add(new KillFeedEntry
-            {
-                KillerName = killerName,
-                VictimName = victimName,
-                WeaponName = weaponName,
-                IsHeadshot = isHeadshot,
-                Distance = distance,
-                Timestamp = UnityEngine.Time.realtimeSinceStartup
-            });
-
-            // Keep only last 5
-            while (_killFeed.Count > 5)
-                _killFeed.RemoveAt(0);
-
-            // Refresh kill feed UI for all players
-            foreach (var player in BasePlayer.activePlayerList)
-                ShowKillFeed(player);
-        }
-
-        private void CleanupKillFeed()
-        {
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            int removed = _killFeed.RemoveAll(e => now - e.Timestamp > 8f);
-
-            if (removed > 0)
-            {
-                foreach (var player in BasePlayer.activePlayerList)
-                    ShowKillFeed(player);
-            }
-        }
-
-        private void ShowKillFeed(BasePlayer player)
-        {
-            CuiHelper.DestroyUi(player, CUI_KillFeed);
-
-            if (_killFeed.Count == 0) return;
-
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            var elements = new CuiElementContainer();
-
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = "0 0 0 0" },
-                RectTransform = { AnchorMin = "0.68 0.78", AnchorMax = "0.995 0.93" },
-                CursorEnabled = false
-            }, "Hud", CUI_KillFeed);
-
-            float rowH = 1f / 5f;
-            int displayIndex = 0;
-
-            for (int i = _killFeed.Count - 1; i >= 0 && displayIndex < 5; i--)
-            {
-                var entry = _killFeed[i];
-                float age = now - entry.Timestamp;
-                float alpha = age > 6f ? Math.Max(0f, 1f - (age - 6f) / 2f) : 1f;
-                if (alpha <= 0f) continue;
-
-                float yTop = 1f - displayIndex * rowH;
-                float yBot = yTop - rowH + 0.01f;
-
-                string killerColor = $"1.0 0.85 0.0 {alpha:F2}";
-                string arrowColor = entry.IsHeadshot ? $"1.0 0.3 0.3 {alpha:F2}" : $"0.7 0.7 0.7 {alpha:F2}";
-                string victimColor = $"1.0 1.0 1.0 {alpha:F2}";
-                string arrow = entry.IsHeadshot ? "HS" : ">";
-
-                string killerTrunc = entry.KillerName.Length > 14 ? entry.KillerName.Substring(0, 14) : entry.KillerName;
-                string victimTrunc = entry.VictimName.Length > 14 ? entry.VictimName.Substring(0, 14) : entry.VictimName;
-                string distText = entry.Distance > 10f ? $" ({entry.Distance:F0}m)" : "";
-
-                // Row background
-                elements.Add(new CuiPanel
-                {
-                    Image = { Color = $"0.05 0.05 0.05 {(0.6f * alpha):F2}" },
-                    RectTransform = { AnchorMin = $"0 {yBot:F3}", AnchorMax = $"1 {yTop:F3}" }
-                }, CUI_KillFeed);
-
-                // Killer name
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = killerTrunc, FontSize = 10, Align = TextAnchor.MiddleRight, Color = killerColor, Font = "robotocondensed-bold.ttf" },
-                    RectTransform = { AnchorMin = $"0 {yBot:F3}", AnchorMax = $"0.38 {yTop:F3}" }
-                }, CUI_KillFeed);
-
-                // Arrow / HS indicator + weapon
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = $" [{arrow}] ", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = arrowColor, Font = "robotocondensed-bold.ttf" },
-                    RectTransform = { AnchorMin = $"0.39 {yBot:F3}", AnchorMax = $"0.56 {yTop:F3}" }
-                }, CUI_KillFeed);
-
-                // Victim name + distance
-                elements.Add(new CuiLabel
-                {
-                    Text = { Text = $"{victimTrunc}{distText}", FontSize = 10, Align = TextAnchor.MiddleLeft, Color = victimColor, Font = "robotocondensed-regular.ttf" },
-                    RectTransform = { AnchorMin = $"0.57 {yBot:F3}", AnchorMax = $"1 {yTop:F3}" }
-                }, CUI_KillFeed);
-
-                displayIndex++;
-            }
-
-            CuiHelper.AddUi(player, elements);
-        }
-
-        #endregion
 
         #region CUI - Streak Banner
 
@@ -2369,106 +1749,18 @@ namespace Oxide.Plugins
 
         #endregion
 
-        #region Bounty System
+        #region Bounty Integration
 
         private void UpdateBountyTarget()
         {
-            if (_config.BountyMinKills <= 0) return;
+            if (BountySystem == null) return;
 
-            // Find the player with the most kills who meets the minimum threshold
             var leader = _playerCache.Values
-                .Where(p => p.Kills >= _config.BountyMinKills)
                 .OrderByDescending(p => p.Kills)
                 .FirstOrDefault();
 
-            ulong newTarget = leader?.SteamId ?? 0;
-
-            if (newTarget == _currentBountyTarget) return;
-
-            // Remove old marker
-            RemoveBountyMarker();
-
-            _currentBountyTarget = newTarget;
-
-            if (_currentBountyTarget == 0)
-            {
-                // No bounty — clear UI for all
-                foreach (var player in BasePlayer.activePlayerList)
-                    CuiHelper.DestroyUi(player, CUI_Bounty);
-                return;
-            }
-
-            // Announce new bounty
-            string targetName = leader.DisplayName;
-            PrintToChat($"{_config.ChatPrefix} {Lang("BountyNew", null, targetName, _config.BountyMultiplier)}");
-
-            // Create map marker on target
-            var targetPlayer = BasePlayer.FindByID(_currentBountyTarget);
-            if (targetPlayer != null && targetPlayer.IsConnected)
-                CreateBountyMarker(targetPlayer);
-
-            // Update bounty UI for all players
-            foreach (var player in BasePlayer.activePlayerList)
-                UpdateBountyUI(player);
-        }
-
-        private void UpdateBountyUI(BasePlayer player)
-        {
-            CuiHelper.DestroyUi(player, CUI_Bounty);
-
-            if (_currentBountyTarget == 0) return;
-
-            var bountyData = _playerCache.ContainsKey(_currentBountyTarget) ? _playerCache[_currentBountyTarget] : null;
-            if (bountyData == null) return;
-
-            bool isMe = player.userID == _currentBountyTarget;
-            string displayText = isMe
-                ? "YOU ARE THE BOUNTY TARGET"
-                : $"BOUNTY: {bountyData.DisplayName} — {_config.BountyMultiplier}x XP";
-            string textColor = isMe ? "1.0 0.3 0.3 1.0" : "1.0 0.85 0.0 1.0";
-            string bgColor = isMe ? "0.8 0.1 0.1 0.12" : "1.0 0.4 0.0 0.12";
-
-            var elements = new CuiElementContainer();
-
-            elements.Add(new CuiPanel
-            {
-                Image = { Color = bgColor },
-                RectTransform = { AnchorMin = "0.35 0.91", AnchorMax = "0.65 0.945" },
-                CursorEnabled = false
-            }, "Hud", CUI_Bounty);
-
-            elements.Add(new CuiLabel
-            {
-                Text = { Text = displayText, FontSize = 10, Align = TextAnchor.MiddleCenter, Color = textColor, Font = "robotocondensed-bold.ttf" },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
-            }, CUI_Bounty);
-
-            CuiHelper.AddUi(player, elements);
-        }
-
-        private void CreateBountyMarker(BasePlayer target)
-        {
-            RemoveBountyMarker();
-
-            _bountyMarker = GameManager.server.CreateEntity("assets/prefabs/tools/map/genericradiusmarker.prefab", target.transform.position) as MapMarkerGenericRadius;
-            if (_bountyMarker == null) return;
-
-            _bountyMarker.alpha = 0.6f;
-            _bountyMarker.color1 = new Color(1f, 0.2f, 0.2f, 1f);
-            _bountyMarker.color2 = new Color(1f, 0.5f, 0f, 1f);
-            _bountyMarker.radius = 0.15f;
-            _bountyMarker.SetParent(target);
-            _bountyMarker.Spawn();
-            _bountyMarker.SendUpdate();
-        }
-
-        private void RemoveBountyMarker()
-        {
-            if (_bountyMarker != null && !_bountyMarker.IsDestroyed)
-            {
-                _bountyMarker.Kill();
-                _bountyMarker = null;
-            }
+            if (leader != null)
+                BountySystem.Call("UpdateBounty", leader.SteamId, leader.DisplayName, leader.Kills);
         }
 
         #endregion
@@ -2479,15 +1771,6 @@ namespace Oxide.Plugins
         private void CmdStats(BasePlayer player, string command, string[] args)
         {
             ShowStatsBoard(player);
-        }
-
-        [ChatCommand("shop")]
-        private void CmdShop(BasePlayer player, string command, string[] args)
-        {
-            int catIndex = 0;
-            if (args.Length >= 1 && int.TryParse(args[0], out int idx))
-                catIndex = idx;
-            ShowShop(player, catIndex);
         }
 
         [ChatCommand("gg")]
@@ -2538,8 +1821,7 @@ namespace Oxide.Plugins
                         WipeDatabase();
 
                         // Reset bounty
-                        _currentBountyTarget = 0;
-                        RemoveBountyMarker();
+                        BountySystem?.Call("ClearBounty");
 
                         // Re-equip all online players with level 1 kit and refresh UI
                         foreach (var bp in BasePlayer.activePlayerList)
@@ -2547,7 +1829,6 @@ namespace Oxide.Plugins
                             var data = GetOrCreatePlayer(bp);
                             EquipKit(bp, data.Level);
                             CreateXPBar(bp, data);
-                            CuiHelper.DestroyUi(bp, CUI_Bounty);
                         }
 
                         Message(player, "WipeComplete");
