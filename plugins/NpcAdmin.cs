@@ -410,7 +410,7 @@ namespace Oxide.Plugins
                     {
                         if (retries > 0)
                         {
-                            Puts($"[DEBUG] HumanPlayer not found for {npcId}, retrying ({retries} left)");
+                            Puts($"[DEBUG] HumanPlayer not found, retrying ({retries} left)");
                             ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
                             return;
                         }
@@ -425,7 +425,7 @@ namespace Oxide.Plugins
                     {
                         if (retries > 0)
                         {
-                            Puts($"[DEBUG] NPC info not ready for {npcId}, retrying ({retries} left)");
+                            Puts($"[DEBUG] NPC info not ready, retrying ({retries} left)");
                             ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
                             return;
                         }
@@ -436,8 +436,7 @@ namespace Oxide.Plugins
                     // Log current info values BEFORE we change them
                     LogInfoFields(info, "BEFORE SetField");
 
-                    // Override HumanNPC defaults (invulnerability=true, respawn=true, health=50)
-                    // Must set these BEFORE RefreshNPC so SpawnNPC reads correct values
+                    // 1. Set all fields on the HumanNPCInfo object (persists for respawns)
                     SetField(info, "health", health);
                     SetField(info, "invulnerability", invulnerable);
                     SetField(info, "hostile", hostile);
@@ -456,48 +455,73 @@ namespace Oxide.Plugins
                             spawnkitField.SetValue(info, kit);
                     }
 
-                    // Log info values AFTER we changed them
                     LogInfoFields(info, "AFTER SetField");
 
-                    // RefreshNPC kills the entity and respawns via SpawnNPC, which calls
-                    // UpdateHealth (applies health from info) and UpdateInventory (applies kit from info.spawnkit).
-                    Puts($"[DEBUG] Calling RefreshNPC for {npcId}...");
-                    HumanNPC.Call("RefreshNPC", npcPlayer, true);
-                    Puts($"[DEBUG] RefreshNPC returned for {npcId}");
+                    // 2. Apply health directly on the live BasePlayer entity
+                    //    (matches what HumanNPC.UpdateHealth does: InitializeHealth + set health)
+                    Puts($"[DEBUG] Applying health: InitializeHealth({health}, {health})");
+                    npcPlayer.InitializeHealth(health, health);
+                    npcPlayer.health = health;
+                    npcPlayer.SendNetworkUpdate();
+                    Puts($"[DEBUG] Health after apply: {npcPlayer.health}/{npcPlayer._maxHealth}");
 
-                    // After respawn, verify the new entity has correct settings
-                    timer.Once(1.5f, () =>
+                    // 3. Apply kit directly on the live entity
+                    //    (matches what HumanNPC.UpdateInventory does)
+                    if (!string.IsNullOrEmpty(kit))
                     {
-                        Puts($"[DEBUG] Post-refresh check for {npcId}...");
-                        var p = FindNpcPlayer(npcId);
-                        Puts($"[DEBUG] Post-refresh player: {(p != null ? p.userID.ToString() : "NULL")}, destroyed={p?.IsDestroyed}");
-
-                        if (p != null)
+                        Puts($"[DEBUG] Applying kit '{kit}' directly...");
+                        npcPlayer.inventory.DoDestroy();
+                        npcPlayer.inventory.ServerInit(npcPlayer);
+                        if (Kits != null)
                         {
-                            Puts($"[DEBUG] Post-refresh hp={p.health}/{p._maxHealth}");
-
-                            // Check info on the new HumanPlayer component
-                            var newHp = GetHumanPlayerComponent(p);
-                            if (newHp != null)
-                            {
-                                var newInfo = GetInfoFromHumanPlayer(newHp);
-                                LogInfoFields(newInfo, "POST-REFRESH");
-                            }
-                            else
-                            {
-                                Puts($"[DEBUG] Post-refresh: NO HumanPlayer component on new entity!");
-                            }
-
-                            p.health = health;
-                            p._maxHealth = health;
-                            p.SendNetworkUpdate();
-
-                            // Log inventory
-                            int beltCount = p.inventory?.containerBelt?.itemList?.Count ?? 0;
-                            int mainCount = p.inventory?.containerMain?.itemList?.Count ?? 0;
-                            int wearCount = p.inventory?.containerWear?.itemList?.Count ?? 0;
-                            Puts($"[DEBUG] Post-refresh inventory: belt={beltCount}, main={mainCount}, wear={wearCount}");
+                            var kitResult = Kits.Call("GiveKit", npcPlayer, kit);
+                            Puts($"[DEBUG] Kits.GiveKit returned: {kitResult}");
                         }
+                        else
+                        {
+                            Puts($"[DEBUG] Kits plugin is NULL!");
+                        }
+                        npcPlayer.inventory.ServerUpdate(0f);
+
+                        int beltCount = npcPlayer.inventory?.containerBelt?.itemList?.Count ?? 0;
+                        int mainCount = npcPlayer.inventory?.containerMain?.itemList?.Count ?? 0;
+                        int wearCount = npcPlayer.inventory?.containerWear?.itemList?.Count ?? 0;
+                        Puts($"[DEBUG] Inventory after kit: belt={beltCount}, main={mainCount}, wear={wearCount}");
+                    }
+
+                    // 4. Tell HumanNPC to re-init locomotion/trigger with updated info
+                    //    UpdateNPC re-creates HumanPlayer component, reading our modified info fields
+                    Puts($"[DEBUG] Calling UpdateNPC...");
+                    HumanNPC.Call("UpdateNPC", npcPlayer, true);
+                    Puts($"[DEBUG] UpdateNPC returned");
+
+                    // 5. Re-apply health + kit after UpdateNPC (it may reset inventory/health)
+                    timer.Once(0.5f, () =>
+                    {
+                        var p = FindNpcPlayer(npcId);
+                        if (p == null)
+                        {
+                            Puts($"[DEBUG] Post-UpdateNPC: player not found!");
+                            return;
+                        }
+
+                        Puts($"[DEBUG] Post-UpdateNPC hp={p.health}/{p._maxHealth}");
+                        p.InitializeHealth(health, health);
+                        p.health = health;
+                        p.SendNetworkUpdate();
+
+                        if (!string.IsNullOrEmpty(kit) && Kits != null)
+                        {
+                            p.inventory.DoDestroy();
+                            p.inventory.ServerInit(p);
+                            Kits.Call("GiveKit", p, kit);
+                            p.inventory.ServerUpdate(0f);
+                        }
+
+                        int belt = p.inventory?.containerBelt?.itemList?.Count ?? 0;
+                        int main = p.inventory?.containerMain?.itemList?.Count ?? 0;
+                        int wear = p.inventory?.containerWear?.itemList?.Count ?? 0;
+                        Puts($"[DEBUG] Final state: hp={p.health}/{p._maxHealth}, belt={belt}, main={main}, wear={wear}");
                     });
 
                     Puts($"[Spawn] Settings applied for NPC {npcId}: invuln={invulnerable}, hostile={hostile}, hp={health}, kit={kit}, respawn={respawn}");
