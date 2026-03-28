@@ -1636,7 +1636,7 @@ namespace Oxide.Plugins
             // Item cards - 3 columns grid
             int cols = 3;
             float cardW = 0.3f;
-            float cardH = 0.18f;
+            float cardH = 0.27f;
             float gapX = 0.025f;
             float gapY = 0.02f;
             float startX = 0.02f;
@@ -1665,11 +1665,22 @@ namespace Oxide.Plugins
                     RectTransform = { AnchorMin = $"{x1:F3} {y1:F3}", AnchorMax = $"{x2:F3} {y2:F3}" }
                 }, grid, cardName);
 
+                // Item image
+                elements.Add(new CuiElement
+                {
+                    Parent = cardName,
+                    Components =
+                    {
+                        new CuiRawImageComponent { Url = $"https://rustlabs.com/img/items180/{item.Shortname}.png", Color = "1 1 1 0.9" },
+                        new CuiRectTransformComponent { AnchorMin = "0.25 0.48", AnchorMax = "0.75 0.95" }
+                    }
+                });
+
                 // Item name
                 elements.Add(new CuiLabel
                 {
-                    Text = { Text = item.DisplayName, FontSize = 12, Align = TextAnchor.UpperCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
-                    RectTransform = { AnchorMin = "0.05 0.55", AnchorMax = "0.95 0.92" }
+                    Text = { Text = item.DisplayName, FontSize = 11, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = "0.05 0.32", AnchorMax = "0.95 0.48" }
                 }, cardName);
 
                 // Price
@@ -1677,7 +1688,7 @@ namespace Oxide.Plugins
                 elements.Add(new CuiLabel
                 {
                     Text = { Text = $"{item.Price} {currencyDisplay}", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = priceColor, Font = "robotocondensed-regular.ttf" },
-                    RectTransform = { AnchorMin = "0.05 0.35", AnchorMax = "0.95 0.55" }
+                    RectTransform = { AnchorMin = "0.05 0.2", AnchorMax = "0.95 0.34" }
                 }, cardName);
 
                 // Buy button
@@ -1688,7 +1699,7 @@ namespace Oxide.Plugins
                 elements.Add(new CuiButton
                 {
                     Button = { Command = buyCmd, Color = buyColor },
-                    RectTransform = { AnchorMin = "0.15 0.06", AnchorMax = "0.85 0.32" },
+                    RectTransform = { AnchorMin = "0.15 0.04", AnchorMax = "0.85 0.19" },
                     Text = { Text = canAfford ? "BUY" : "CAN'T AFFORD", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = buyTextColor, Font = "robotocondensed-bold.ttf" }
                 }, cardName);
             }
