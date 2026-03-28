@@ -64,10 +64,10 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
       <div>
         ${card({ title: "Quick Presets", description: "One-click spawn common NPC types" }, `
           <div class="space-y-2">
-            ${presetButton("Hostile Guard", { hostile: true, health: "100", damage: "15", radius: "40", speed: "3.5" })}
-            ${presetButton("Passive Trader", { hostile: false, health: "100", damage: "0", radius: "10", speed: "0", invulnerable: true })}
-            ${presetButton("Patrol Soldier", { hostile: true, health: "150", damage: "20", radius: "50", speed: "4" })}
-            ${presetButton("Weak Zombie", { hostile: true, health: "50", damage: "8", radius: "20", speed: "2.5" })}
+            ${presetButton("Hostile Guard", { hostile: true, health: "100", damage: "15", radius: "40", speed: "3.5", kit: "level_5" })}
+            ${presetButton("Passive Trader", { hostile: false, health: "100", damage: "0", radius: "10", speed: "0", invulnerable: true, kit: "level_0" })}
+            ${presetButton("Patrol Soldier", { hostile: true, health: "150", damage: "20", radius: "50", speed: "4", kit: "level_8" })}
+            ${presetButton("Weak Zombie", { hostile: true, health: "50", damage: "8", radius: "20", speed: "2.5", kit: "level_2" })}
           </div>
         `)}
       </div>
@@ -275,6 +275,7 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
           if (p.damage) document.querySelector('input[name="npc-damage"]').value = p.damage;
           if (p.radius) document.querySelector('input[name="npc-radius"]').value = p.radius;
           if (p.speed) document.querySelector('input[name="npc-speed"]').value = p.speed;
+          document.querySelector('input[name="npc-kit"]').value = p.kit || '';
           document.querySelector('input[name="npc-hostile"][type="checkbox"]').checked = !!p.hostile;
           document.querySelector('input[name="npc-invulnerable"][type="checkbox"]').checked = !!p.invulnerable;
         });
@@ -335,11 +336,11 @@ export function npcsPage(opts?: { success?: string; error?: string }) {
   `, { activePage: "npcs" });
 }
 
-function presetButton(label: string, opts: { hostile: boolean; health: string; damage: string; radius: string; speed: string; invulnerable?: boolean }) {
+function presetButton(label: string, opts: { hostile: boolean; health: string; damage: string; radius: string; speed: string; invulnerable?: boolean; kit?: string }) {
   const preset = JSON.stringify({ name: label, ...opts });
   return `<button data-preset='${preset.replace(/'/g, "&#39;")}'
     class="w-full flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left">
     <span class="font-medium">${label}</span>
-    <span class="text-xs text-zinc-400">${opts.hostile ? "Hostile" : "Passive"} &middot; HP ${opts.health}</span>
+    <span class="text-xs text-zinc-400">${opts.hostile ? "Hostile" : "Passive"} &middot; HP ${opts.health}${opts.kit ? " &middot; " + opts.kit : ""}</span>
   </button>`;
 }
