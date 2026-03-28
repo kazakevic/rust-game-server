@@ -44,12 +44,17 @@ namespace Oxide.Plugins
         private const string CUI_ScreenFlash = "GunGame_Flash";
         private const string CUI_StatsBoard = "GunGame_Stats";
         private const string CUI_StreakPopup = "GunGame_Streak";
+        private const string CUI_PrestigeBanner = "GunGame_Prestige";
 
         // Track active popup timers per player so we can cancel/extend
         private Dictionary<ulong, Timer> _xpPopupTimers = new Dictionary<ulong, Timer>();
         private Dictionary<ulong, Timer> _levelUpTimers = new Dictionary<ulong, Timer>();
         private Dictionary<ulong, Timer> _flashTimers = new Dictionary<ulong, Timer>();
         private Dictionary<ulong, Timer> _streakTimers = new Dictionary<ulong, Timer>();
+        private Dictionary<ulong, Timer> _prestigeTimers = new Dictionary<ulong, Timer>();
+
+        // Track players who typed /prestige and need to confirm
+        private HashSet<ulong> _prestigePending = new HashSet<ulong>();
 
         // Track cumulative XP gain within rapid kills
         private Dictionary<ulong, int> _pendingXPDisplay = new Dictionary<ulong, int>();
@@ -169,6 +174,44 @@ namespace Oxide.Plugins
                 new KillStreakReward { Streak = 10, Title = "GODLIKE", XPMultiplier = 2.0f, RewardItemShortname = "ammo.rocket.basic", RewardItemAmount = 1, BroadcastToServer = true },
             };
 
+            [JsonProperty("PrestigeEnabled")]
+            public bool PrestigeEnabled { get; set; } = true;
+
+            [JsonProperty("MaxPrestige")]
+            public int MaxPrestige { get; set; } = 10;
+
+            [JsonProperty("PrestigeXPBonusPercent")]
+            public float PrestigeXPBonusPercent { get; set; } = 0.05f;
+
+            [JsonProperty("PrestigeCurrencyReward")]
+            public int PrestigeCurrencyReward { get; set; } = 50;
+
+            [JsonProperty("PrestigeTiers")]
+            public List<PrestigeTier> PrestigeTiers { get; set; } = new List<PrestigeTier>
+            {
+                new PrestigeTier { MinPrestige = 1, Title = "Bronze", Color = "0.8 0.5 0.2 1.0", Symbol = "I" },
+                new PrestigeTier { MinPrestige = 2, Title = "Silver", Color = "0.8 0.8 0.8 1.0", Symbol = "II" },
+                new PrestigeTier { MinPrestige = 3, Title = "Gold", Color = "1.0 0.84 0.0 1.0", Symbol = "III" },
+                new PrestigeTier { MinPrestige = 5, Title = "Platinum", Color = "0.4 0.85 0.9 1.0", Symbol = "V" },
+                new PrestigeTier { MinPrestige = 7, Title = "Diamond", Color = "0.7 0.5 1.0 1.0", Symbol = "VII" },
+                new PrestigeTier { MinPrestige = 10, Title = "Master", Color = "1.0 0.2 0.2 1.0", Symbol = "X" },
+            };
+
+        }
+
+        private class PrestigeTier
+        {
+            [JsonProperty("MinPrestige")]
+            public int MinPrestige { get; set; }
+
+            [JsonProperty("Title")]
+            public string Title { get; set; }
+
+            [JsonProperty("Color")]
+            public string Color { get; set; }
+
+            [JsonProperty("Symbol")]
+            public string Symbol { get; set; }
         }
 
         private class KillStreakReward
@@ -234,6 +277,7 @@ namespace Oxide.Plugins
             public int Level { get; set; } = 1;
             public int CurrentStreak { get; set; }
             public int BestStreak { get; set; }
+            public int Prestige { get; set; }
             public bool Dirty { get; set; }
 
             public double KDRatio => Deaths == 0 ? Kills : Math.Round((double)Kills / Deaths, 2);
@@ -261,7 +305,7 @@ namespace Oxide.Plugins
                 ["PlayerNotFound"] = "Player not found.",
                 ["InvalidLevel"] = "Invalid level. Must be between 1 and {0}.",
                 ["NoPermission"] = "You don't have permission to use this command.",
-                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
+                ["Usage"] = "<color=#00ffff>Usage:</color>\n/gg — View your stats\n/gg top — Leaderboard\n/prestige — Prestige at max level\n/gg stats <player> — View player stats (admin)\n/gg setlevel <player> <level> — Set level (admin)\n/gg wipe — Reset all data (admin)",
                 ["KitNotFound"] = "<color=#ff0000>Kit '{0}' not found. Ask an admin to create it.</color>",
                 ["KitsNotLoaded"] = "<color=#ff0000>Kits plugin is not loaded!</color>",
                 ["AnimalKillXP"] = "You gained <color=#00ff00>+{0} XP</color> from an animal kill ({1} total) — Level {2}",
@@ -273,6 +317,12 @@ namespace Oxide.Plugins
                 ["RevengeKill"] = "<color=#ff4444>REVENGE!</color> +{0} bonus XP for avenging your death!",
                 ["FirstBlood"] = "<color=#ff0000>FIRST BLOOD!</color> <color=#ffff00>{0}</color> draws first blood and earns <color=#00ff00>+{1} XP</color>!",
                 ["UnderdogBonus"] = "+{0} underdog bonus XP (level difference)",
+                ["PrestigeUp"] = "<color=#ff00ff>PRESTIGE UP!</color> <color=#ffff00>{0}</color> is now <color=#00ffff>Prestige {1}</color> ({2})!",
+                ["PrestigeConfirm"] = "Are you sure you want to prestige? This will <color=#ff4444>reset your level and XP to zero</color> but grant you <color=#00ffff>Prestige {0}</color> ({1}). Type <color=#ffff00>/prestige confirm</color> to proceed.",
+                ["PrestigeNotReady"] = "You must reach <color=#ffff00>max level ({0})</color> before you can prestige.",
+                ["PrestigeMaxed"] = "You have reached the <color=#ff00ff>maximum prestige level</color> ({0})!",
+                ["PrestigeDisabled"] = "Prestige is not enabled on this server.",
+                ["PrestigeBonus"] = "Prestige {0} — <color=#00ff00>+{1}% XP bonus</color>",
             }, this);
         }
 
@@ -362,21 +412,47 @@ namespace Oxide.Plugins
             string barColor = isMax ? ColorBarFillMax : ColorBarFill;
             string levelColor = isMax ? ColorGold : ColorAccent;
 
+            // Prestige info
+            bool hasPrestige = data.Prestige > 0;
+            var prestigeTier = hasPrestige ? GetPrestigeTier(data.Prestige) : null;
+            string prestigeBadgeColor = prestigeTier?.Color ?? "1.0 0.0 1.0 1.0";
+
             var elements = new CuiElementContainer();
 
-            // Main container — bottom-left corner (compact)
+            // Main container — wider if prestiged to fit badge
+            string barMaxX = hasPrestige ? "0.2" : "0.17";
             elements.Add(new CuiPanel
             {
                 Image = { Color = ColorBg, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
-                RectTransform = { AnchorMin = "0.005 0.025", AnchorMax = "0.17 0.052" },
+                RectTransform = { AnchorMin = "0.005 0.025", AnchorMax = $"{barMaxX} 0.052" },
                 CursorEnabled = false
             }, "Hud", CUI_XPBar);
 
-            // Level badge (left side)
+            // Prestige badge (far left, only if prestiged)
+            float lvlAnchorStart = 0f;
+            if (hasPrestige)
+            {
+                elements.Add(new CuiPanel
+                {
+                    Image = { Color = prestigeBadgeColor },
+                    RectTransform = { AnchorMin = "0 0", AnchorMax = "0.08 1" }
+                }, CUI_XPBar, CUI_XPBar + "_PBg");
+
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = $"P{data.Prestige}", FontSize = 8, Align = TextAnchor.MiddleCenter, Color = "0.05 0.05 0.05 1.0", Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
+                }, CUI_XPBar + "_PBg");
+
+                lvlAnchorStart = 0.085f;
+            }
+
+            // Level badge
+            string lvlEnd = hasPrestige ? "0.18" : "0.12";
             elements.Add(new CuiPanel
             {
                 Image = { Color = levelColor },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.12 1" }
+                RectTransform = { AnchorMin = $"{lvlAnchorStart} 0", AnchorMax = $"{lvlEnd} 1" }
             }, CUI_XPBar, CUI_XPBar + "_LvlBg");
 
             elements.Add(new CuiLabel
@@ -385,19 +461,21 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
             }, CUI_XPBar + "_LvlBg");
 
-            // Bar background (middle area)
+            // Bar background (middle area) — shift right if prestiged
+            float barStart = hasPrestige ? 0.195f : 0.135f;
+            float barEnd = 0.86f;
             elements.Add(new CuiPanel
             {
                 Image = { Color = ColorBarEmpty },
-                RectTransform = { AnchorMin = "0.135 0.2", AnchorMax = "0.86 0.8" }
+                RectTransform = { AnchorMin = $"{barStart} 0.2", AnchorMax = $"{barEnd} 0.8" }
             }, CUI_XPBar, CUI_XPBar + "_BarBg");
 
             // Bar fill
-            string fillMax = (0.135 + progress * (0.86 - 0.135)).ToString("F4");
+            string fillMax = (barStart + progress * (barEnd - barStart)).ToString("F4");
             elements.Add(new CuiPanel
             {
                 Image = { Color = barColor },
-                RectTransform = { AnchorMin = "0.135 0.2", AnchorMax = $"{fillMax} 0.8" }
+                RectTransform = { AnchorMin = $"{barStart} 0.2", AnchorMax = $"{fillMax} 0.8" }
             }, CUI_XPBar, CUI_XPBar + "_BarFill");
 
             // Bar glow overlay (subtle shine on the fill)
@@ -406,7 +484,7 @@ namespace Oxide.Plugins
                 elements.Add(new CuiPanel
                 {
                     Image = { Color = "1.0 1.0 1.0 0.08" },
-                    RectTransform = { AnchorMin = "0.135 0.55", AnchorMax = $"{fillMax} 0.8" }
+                    RectTransform = { AnchorMin = $"{barStart} 0.55", AnchorMax = $"{fillMax} 0.8" }
                 }, CUI_XPBar);
             }
 
@@ -414,7 +492,7 @@ namespace Oxide.Plugins
             elements.Add(new CuiLabel
             {
                 Text = { Text = xpText, FontSize = 7, Align = TextAnchor.MiddleCenter, Color = ColorWhite, Font = "robotocondensed-regular.ttf" },
-                RectTransform = { AnchorMin = "0.135 0", AnchorMax = "0.86 1" }
+                RectTransform = { AnchorMin = $"{barStart} 0", AnchorMax = $"{barEnd} 1" }
             }, CUI_XPBar);
 
             // Percentage text (right side)
@@ -429,11 +507,13 @@ namespace Oxide.Plugins
             {
                 string streakText = $"x{data.CurrentStreak}";
                 string streakCol = data.CurrentStreak >= 10 ? "1.0 0.2 0.2 1.0" : data.CurrentStreak >= 5 ? "1.0 0.5 0.0 1.0" : "1.0 0.85 0.0 1.0";
+                string streakMinX = hasPrestige ? "0.205" : "0.175";
+                string streakMaxX = hasPrestige ? "0.25" : "0.22";
 
                 elements.Add(new CuiPanel
                 {
                     Image = { Color = "0.1 0.1 0.1 0.85" },
-                    RectTransform = { AnchorMin = "0.175 0.025", AnchorMax = "0.22 0.052" },
+                    RectTransform = { AnchorMin = $"{streakMinX} 0.025", AnchorMax = $"{streakMaxX} 0.052" },
                     CursorEnabled = false
                 }, "Hud", CUI_XPBar + "_Streak");
 
@@ -531,8 +611,11 @@ namespace Oxide.Plugins
             var elements = new CuiElementContainer();
 
             bool isMax = data.Level >= _config.MaxLevel;
+            bool canPrestige = isMax && _config.PrestigeEnabled && data.Prestige < _config.MaxPrestige;
             string title = isMax ? "★ MAX LEVEL REACHED ★" : $"LEVEL UP!";
-            string subtitle = isMax ? "You have mastered Gun Game!" : $"You are now Level {data.Level}";
+            string subtitle = isMax
+                ? (canPrestige ? "Type /prestige to advance!" : "You have mastered Gun Game!")
+                : $"You are now Level {data.Level}";
 
             // Full-width banner near top of screen
             elements.Add(new CuiPanel
@@ -692,6 +775,7 @@ namespace Oxide.Plugins
                 CuiHelper.DestroyUi(player, CUI_ScreenFlash);
                 CuiHelper.DestroyUi(player, CUI_StatsBoard);
                 CuiHelper.DestroyUi(player, CUI_StreakPopup);
+                CuiHelper.DestroyUi(player, CUI_PrestigeBanner);
             }
 
             // Cancel all timers
@@ -699,10 +783,13 @@ namespace Oxide.Plugins
             foreach (var t in _levelUpTimers.Values) t?.Destroy();
             foreach (var t in _flashTimers.Values) t?.Destroy();
             foreach (var t in _streakTimers.Values) t?.Destroy();
+            foreach (var t in _prestigeTimers.Values) t?.Destroy();
             _xpPopupTimers.Clear();
             _levelUpTimers.Clear();
             _flashTimers.Clear();
             _streakTimers.Clear();
+            _prestigeTimers.Clear();
+            _prestigePending.Clear();
 
             _autoSaveTimer?.Destroy();
 
@@ -738,6 +825,7 @@ namespace Oxide.Plugins
                     xp INTEGER NOT NULL DEFAULT 0,
                     level INTEGER NOT NULL DEFAULT 1,
                     best_streak INTEGER NOT NULL DEFAULT 0,
+                    prestige INTEGER NOT NULL DEFAULT 0,
                     last_updated TEXT NOT NULL DEFAULT (datetime('now'))
                 );";
 
@@ -757,6 +845,8 @@ namespace Oxide.Plugins
                     _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN npc_kills INTEGER NOT NULL DEFAULT 0;"), _db);
                 if (!columns.Contains("best_streak"))
                     _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0;"), _db);
+                if (!columns.Contains("prestige"))
+                    _sqlite.ExecuteNonQuery(Sql.Builder.Append("ALTER TABLE player_stats ADD COLUMN prestige INTEGER NOT NULL DEFAULT 0;"), _db);
             });
 
             LoadAllPlayers();
@@ -770,7 +860,7 @@ namespace Oxide.Plugins
 
         private void LoadAllPlayers()
         {
-            string query = "SELECT steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level, best_streak FROM player_stats;";
+            string query = "SELECT steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level, best_streak, prestige FROM player_stats;";
             _sqlite.Query(Sql.Builder.Append(query), _db, results =>
             {
                 if (results == null) return;
@@ -790,6 +880,7 @@ namespace Oxide.Plugins
                         XP = Convert.ToInt32(row["xp"]),
                         Level = Convert.ToInt32(row["level"]),
                         BestStreak = Convert.ToInt32(row["best_streak"]),
+                        Prestige = Convert.ToInt32(row["prestige"]),
                         Dirty = false
                     };
                 }
@@ -803,8 +894,8 @@ namespace Oxide.Plugins
             if (!data.Dirty) return;
 
             string upsert = @"
-                INSERT INTO player_stats (steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level, best_streak, last_updated)
-                VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, datetime('now'))
+                INSERT INTO player_stats (steam_id, display_name, kills, deaths, headshots, animal_kills, npc_kills, xp, level, best_streak, prestige, last_updated)
+                VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, datetime('now'))
                 ON CONFLICT(steam_id) DO UPDATE SET
                     display_name = @1,
                     kills = @2,
@@ -815,6 +906,7 @@ namespace Oxide.Plugins
                     xp = @7,
                     level = @8,
                     best_streak = @9,
+                    prestige = @10,
                     last_updated = datetime('now');";
 
             _sqlite.ExecuteNonQuery(
@@ -828,7 +920,8 @@ namespace Oxide.Plugins
                     data.NPCKills,
                     data.XP,
                     data.Level,
-                    data.BestStreak),
+                    data.BestStreak,
+                    data.Prestige),
                 _db);
 
             data.Dirty = false;
@@ -900,7 +993,13 @@ namespace Oxide.Plugins
                     xpGained += distanceBonusUnits * _config.DistanceBonusXPPer50m;
             }
 
-            return (int)(xpGained * _config.DifficultyMultiplier);
+            xpGained = (int)(xpGained * _config.DifficultyMultiplier);
+
+            // Apply prestige XP bonus
+            if (killerData.Prestige > 0)
+                xpGained = (int)(xpGained * GetPrestigeXPMultiplier(killerData.Prestige));
+
+            return xpGained;
         }
 
         private bool CheckLevelUp(PlayerData data)
@@ -941,6 +1040,31 @@ namespace Oxide.Plugins
             if (currentLevel <= 1) return 0;
             if (!_config.LevelXPThresholds.TryGetValue(currentLevel, out int threshold)) return 0;
             return threshold;
+        }
+
+        private PrestigeTier GetPrestigeTier(int prestige)
+        {
+            if (prestige <= 0) return null;
+            PrestigeTier best = null;
+            foreach (var tier in _config.PrestigeTiers)
+            {
+                if (prestige >= tier.MinPrestige && (best == null || tier.MinPrestige > best.MinPrestige))
+                    best = tier;
+            }
+            return best;
+        }
+
+        private float GetPrestigeXPMultiplier(int prestige)
+        {
+            return 1f + prestige * _config.PrestigeXPBonusPercent;
+        }
+
+        private string GetPrestigeTag(int prestige)
+        {
+            if (prestige <= 0) return "";
+            var tier = GetPrestigeTier(prestige);
+            if (tier == null) return $"P{prestige}";
+            return $"P{prestige}";
         }
 
         #endregion
@@ -987,6 +1111,8 @@ namespace Oxide.Plugins
             if (info.isHeadshot)
                 xpGained += _config.HeadshotBonusXP;
             xpGained = (int)(xpGained * _config.DifficultyMultiplier);
+            if (killerData.Prestige > 0)
+                xpGained = (int)(xpGained * GetPrestigeXPMultiplier(killerData.Prestige));
 
             killerData.XP += xpGained;
             killerData.Dirty = true;
@@ -1019,6 +1145,8 @@ namespace Oxide.Plugins
             killerData.AnimalKills++;
 
             int xpGained = (int)(_config.XPPerAnimalKill * _config.DifficultyMultiplier);
+            if (killerData.Prestige > 0)
+                xpGained = (int)(xpGained * GetPrestigeXPMultiplier(killerData.Prestige));
             killerData.XP += xpGained;
             killerData.Dirty = true;
 
@@ -1244,6 +1372,8 @@ namespace Oxide.Plugins
                 if (assistPlayer == null || !assistPlayer.IsConnected) continue;
 
                 int assistXP = (int)(_config.AssistXP * _config.DifficultyMultiplier);
+                if (assistData.Prestige > 0)
+                    assistXP = (int)(assistXP * GetPrestigeXPMultiplier(assistData.Prestige));
                 assistData.XP += assistXP;
                 assistData.Dirty = true;
 
@@ -1359,6 +1489,7 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, CUI_ScreenFlash);
             CuiHelper.DestroyUi(player, CUI_StatsBoard);
             CuiHelper.DestroyUi(player, CUI_StreakPopup);
+            CuiHelper.DestroyUi(player, CUI_PrestigeBanner);
 
             // Clean up timers
             ulong id = player.userID;
@@ -1366,7 +1497,9 @@ namespace Oxide.Plugins
             if (_levelUpTimers.TryGetValue(id, out Timer t2)) { t2?.Destroy(); _levelUpTimers.Remove(id); }
             if (_flashTimers.TryGetValue(id, out Timer t3)) { t3?.Destroy(); _flashTimers.Remove(id); }
             if (_streakTimers.TryGetValue(id, out Timer t4)) { t4?.Destroy(); _streakTimers.Remove(id); }
+            if (_prestigeTimers.TryGetValue(id, out Timer t5)) { t5?.Destroy(); _prestigeTimers.Remove(id); }
             _pendingXPDisplay.Remove(id);
+            _prestigePending.Remove(id);
 
             // Reset current streak (they left)
             if (_playerCache.TryGetValue(player.userID, out PlayerData data))
@@ -1492,9 +1625,25 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.02 0.55", AnchorMax = "0.25 0.87" }
             }, leftPanel);
 
+            string levelSubtext = isMax ? "MAX LEVEL" : "LEVEL";
+            if (data.Prestige > 0)
+            {
+                var statsTier = GetPrestigeTier(data.Prestige);
+                string statsTierTitle = statsTier?.Title ?? $"Prestige {data.Prestige}";
+                string statsTierColor = statsTier?.Color ?? "1.0 0.0 1.0 1.0";
+                levelSubtext = isMax ? "MAX LEVEL" : "LEVEL";
+
+                // Prestige tier badge
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = $"P{data.Prestige} {statsTierTitle}", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = statsTierColor, Font = "robotocondensed-bold.ttf" },
+                    RectTransform = { AnchorMin = "0.28 0.57", AnchorMax = "0.95 0.67" }
+                }, leftPanel);
+            }
+
             elements.Add(new CuiLabel
             {
-                Text = { Text = isMax ? "MAX LEVEL" : $"LEVEL", FontSize = 9, Align = TextAnchor.UpperCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
+                Text = { Text = levelSubtext, FontSize = 9, Align = TextAnchor.UpperCenter, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf" },
                 RectTransform = { AnchorMin = "0.02 0.50", AnchorMax = "0.25 0.58" }
             }, leftPanel);
 
@@ -1652,7 +1801,8 @@ namespace Oxide.Plugins
 
             // Leaderboard rows
             var top = _playerCache.Values
-                .OrderByDescending(p => p.Level)
+                .OrderByDescending(p => p.Prestige)
+                .ThenByDescending(p => p.Level)
                 .ThenByDescending(p => p.XP)
                 .ThenByDescending(p => p.Kills)
                 .Take(10)
@@ -1673,7 +1823,10 @@ namespace Oxide.Plugins
                 bool isMe = p.SteamId == player.userID;
                 string rankColor = i == 0 ? ColorGold : i == 1 ? "0.8 0.8 0.8 1.0" : i == 2 ? "0.8 0.5 0.2 1.0" : ColorWhiteSoft;
                 string nameColor = isMe ? ColorAccent : ColorWhite;
-                string nameText = p.DisplayName.Length > 18 ? p.DisplayName.Substring(0, 18) + ".." : p.DisplayName;
+                int maxNameLen = p.Prestige > 0 ? 14 : 18;
+                string nameText = p.DisplayName.Length > maxNameLen ? p.DisplayName.Substring(0, maxNameLen) + ".." : p.DisplayName;
+                if (p.Prestige > 0)
+                    nameText = $"P{p.Prestige} {nameText}";
 
                 // Highlight row if it's the player
                 if (isMe)
@@ -1746,7 +1899,8 @@ namespace Oxide.Plugins
 
             // Find player rank
             var allSorted = _playerCache.Values
-                .OrderByDescending(p => p.Level)
+                .OrderByDescending(p => p.Prestige)
+                .ThenByDescending(p => p.Level)
                 .ThenByDescending(p => p.XP)
                 .ThenByDescending(p => p.Kills)
                 .ToList();
@@ -1898,6 +2052,92 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region CUI - Prestige Banner
+
+        private void ShowPrestigeBanner(BasePlayer player, PlayerData data)
+        {
+            ulong id = player.userID;
+
+            if (_prestigeTimers.TryGetValue(id, out Timer existing))
+                existing?.Destroy();
+
+            CuiHelper.DestroyUi(player, CUI_PrestigeBanner);
+
+            var elements = new CuiElementContainer();
+            var tier = GetPrestigeTier(data.Prestige);
+            string tierTitle = tier?.Title ?? $"Prestige {data.Prestige}";
+            string tierColor = tier?.Color ?? "1.0 0.0 1.0 1.0";
+
+            // Full-width banner near top of screen
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.05 0.02 0.08 0.95", Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
+                RectTransform = { AnchorMin = "0.2 0.75", AnchorMax = "0.8 0.92" },
+                CursorEnabled = false,
+                FadeOut = 2f
+            }, "Hud", CUI_PrestigeBanner);
+
+            // Top accent line
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = tierColor },
+                RectTransform = { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+                FadeOut = 2f
+            }, CUI_PrestigeBanner);
+
+            // Bottom accent line
+            elements.Add(new CuiPanel
+            {
+                Image = { Color = tierColor },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.07" },
+                FadeOut = 2f
+            }, CUI_PrestigeBanner);
+
+            // Prestige number (big, left side)
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"P{data.Prestige}", FontSize = 48, Align = TextAnchor.MiddleCenter, Color = tierColor, Font = "robotocondensed-bold.ttf", FadeIn = 0.2f },
+                RectTransform = { AnchorMin = "0 0.07", AnchorMax = "0.22 0.93" },
+                FadeOut = 2f
+            }, CUI_PrestigeBanner);
+
+            // Title
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "PRESTIGE UP!", FontSize = 26, Align = TextAnchor.MiddleLeft, Color = tierColor, Font = "robotocondensed-bold.ttf", FadeIn = 0.2f },
+                RectTransform = { AnchorMin = "0.24 0.55", AnchorMax = "0.95 0.93" },
+                FadeOut = 2f
+            }, CUI_PrestigeBanner);
+
+            // Subtitle
+            int bonusPercent = (int)(data.Prestige * _config.PrestigeXPBonusPercent * 100);
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"{tierTitle} — +{bonusPercent}% XP bonus", FontSize = 15, Align = TextAnchor.MiddleLeft, Color = ColorWhiteSoft, Font = "robotocondensed-regular.ttf", FadeIn = 0.4f },
+                RectTransform = { AnchorMin = "0.24 0.12", AnchorMax = "0.95 0.52" },
+                FadeOut = 2f
+            }, CUI_PrestigeBanner);
+
+            CuiHelper.AddUi(player, elements);
+
+            // Play prestige sound & gesture
+            Effect.server.Run("assets/bundled/prefabs/fx/gestures/drink_raise.prefab", player.transform.position);
+            Effect.server.Run("assets/bundled/prefabs/fx/invite_notice.prefab", player.transform.position);
+            player.SignalBroadcast(BaseEntity.Signal.Gesture, "victory");
+
+            // Screen flash
+            ShowScreenFlash(player);
+
+            _prestigeTimers[id] = timer.Once(5f, () =>
+            {
+                if (player != null && player.IsConnected)
+                    CuiHelper.DestroyUi(player, CUI_PrestigeBanner);
+                _prestigeTimers.Remove(id);
+            });
+        }
+
+        #endregion
+
         #region Bounty Integration
 
         private void UpdateBountyTarget()
@@ -1920,6 +2160,90 @@ namespace Oxide.Plugins
         private void CmdStats(BasePlayer player, string command, string[] args)
         {
             ShowStatsBoard(player);
+        }
+
+        [ChatCommand("prestige")]
+        private void CmdPrestige(BasePlayer player, string command, string[] args)
+        {
+            if (!_config.PrestigeEnabled)
+            {
+                Message(player, "PrestigeDisabled");
+                return;
+            }
+
+            var data = GetOrCreatePlayer(player);
+
+            if (data.Prestige >= _config.MaxPrestige)
+            {
+                Message(player, "PrestigeMaxed", _config.MaxPrestige);
+                return;
+            }
+
+            if (data.Level < _config.MaxLevel)
+            {
+                Message(player, "PrestigeNotReady", _config.MaxLevel);
+                return;
+            }
+
+            // Confirmation flow
+            if (args.Length >= 1 && args[0].ToLower() == "confirm")
+            {
+                if (!_prestigePending.Contains(player.userID))
+                {
+                    // They typed /prestige confirm without first typing /prestige
+                    var nextTier = GetPrestigeTier(data.Prestige + 1);
+                    string nextTitle = nextTier?.Title ?? $"Prestige {data.Prestige + 1}";
+                    Message(player, "PrestigeConfirm", data.Prestige + 1, nextTitle);
+                    _prestigePending.Add(player.userID);
+                    return;
+                }
+
+                _prestigePending.Remove(player.userID);
+
+                // Perform prestige
+                data.Prestige++;
+                data.Level = 1;
+                data.XP = 0;
+                data.CurrentStreak = 0;
+                data.Dirty = true;
+                SavePlayer(data);
+
+                // Give currency reward
+                if (_config.PrestigeCurrencyReward > 0 && !string.IsNullOrEmpty(_config.KillRewardItemShortname))
+                {
+                    var itemDef = ItemManager.FindItemDefinition(_config.KillRewardItemShortname);
+                    if (itemDef != null)
+                    {
+                        var item = ItemManager.Create(itemDef, _config.PrestigeCurrencyReward);
+                        if (item != null)
+                        {
+                            if (!player.inventory.GiveItem(item))
+                                item.DropAndTossUpwards(player.transform.position);
+                        }
+                    }
+                }
+
+                // Re-equip level 1 kit
+                EquipKit(player, data.Level);
+
+                // Show prestige banner
+                ShowPrestigeBanner(player, data);
+
+                // Update XP bar
+                CreateXPBar(player, data);
+
+                // Broadcast
+                var tier = GetPrestigeTier(data.Prestige);
+                string tierTitle = tier?.Title ?? $"Prestige {data.Prestige}";
+                PrintToChat($"{_config.ChatPrefix} {Lang("PrestigeUp", null, player.displayName, data.Prestige, tierTitle)}");
+                return;
+            }
+
+            // Show confirmation prompt
+            var promptTier = GetPrestigeTier(data.Prestige + 1);
+            string promptTitle = promptTier?.Title ?? $"Prestige {data.Prestige + 1}";
+            Message(player, "PrestigeConfirm", data.Prestige + 1, promptTitle);
+            _prestigePending.Add(player.userID);
         }
 
         [ChatCommand("gg")]
@@ -2014,11 +2338,25 @@ namespace Oxide.Plugins
             int xpNeeded = nextXP - currentLevelXP;
             string xpDisplay = nextXP == int.MaxValue ? $"{data.XP} (MAX)" : $"{xpIntoLevel}/{xpNeeded}";
             Message(player, "Stats", data.Level, xpDisplay, "", data.Kills, data.Deaths, data.KDRatio, data.Headshots, data.AnimalKills, data.NPCKills);
+            if (data.Prestige > 0)
+            {
+                var tier = GetPrestigeTier(data.Prestige);
+                string tierTitle = tier?.Title ?? $"Prestige {data.Prestige}";
+                int bonusPct = (int)(data.Prestige * _config.PrestigeXPBonusPercent * 100);
+                player.ChatMessage($"{_config.ChatPrefix} {Lang("PrestigeBonus", player, $"{data.Prestige} ({tierTitle})", bonusPct)}");
+            }
         }
 
         private void ShowStatsOther(BasePlayer player, PlayerData target)
         {
             Message(player, "StatsOther", target.DisplayName, target.Level, target.XP, target.Kills, target.Deaths, target.KDRatio, target.Headshots, target.AnimalKills, target.NPCKills);
+            if (target.Prestige > 0)
+            {
+                var tier = GetPrestigeTier(target.Prestige);
+                string tierTitle = tier?.Title ?? $"Prestige {target.Prestige}";
+                int bonusPct = (int)(target.Prestige * _config.PrestigeXPBonusPercent * 100);
+                player.ChatMessage($"{_config.ChatPrefix} {Lang("PrestigeBonus", player, $"{target.Prestige} ({tierTitle})", bonusPct)}");
+            }
         }
 
         private void ShowLeaderboard(BasePlayer player)
@@ -2030,7 +2368,8 @@ namespace Oxide.Plugins
             }
 
             var top = _playerCache.Values
-                .OrderByDescending(p => p.Level)
+                .OrderByDescending(p => p.Prestige)
+                .ThenByDescending(p => p.Level)
                 .ThenByDescending(p => p.XP)
                 .ThenByDescending(p => p.Kills)
                 .Take(_config.TopListSize)
@@ -2042,7 +2381,8 @@ namespace Oxide.Plugins
             for (int i = 0; i < top.Count; i++)
             {
                 var p = top[i];
-                sb.AppendLine(string.Format(Lang("TopEntry", player), i + 1, p.DisplayName, p.Level, p.XP, p.Kills, p.KDRatio));
+                string displayName = p.Prestige > 0 ? $"[P{p.Prestige}] {p.DisplayName}" : p.DisplayName;
+                sb.AppendLine(string.Format(Lang("TopEntry", player), i + 1, displayName, p.Level, p.XP, p.Kills, p.KDRatio));
             }
 
             player.ChatMessage($"{_config.ChatPrefix}\n{sb}");
