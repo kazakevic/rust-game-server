@@ -164,35 +164,52 @@ namespace Oxide.Plugins
         #region NPC Lookup
 
         /// <summary>
-        /// Find an NPC's BasePlayer using HumanNPC's own lookup (BasePlayer.FindByID doesn't work for NPCs).
+        /// Get the HumanPlayer component for an NPC using HumanNPC's own lookup.
+        /// BasePlayer.FindByID doesn't work for NPCs, and GetComponent("HumanPlayer")
+        /// doesn't work because HumanPlayer is a nested class inside HumanNPC plugin.
         /// </summary>
-        private BasePlayer FindNpcPlayer(ulong npcId)
+        private object FindHumanPlayer(ulong npcId)
         {
             if (HumanNPC == null) return null;
+            return HumanNPC.Call("FindHumanPlayerByID", npcId);
+        }
 
-            var humanPlayer = HumanNPC.Call("FindHumanPlayerByID", npcId);
+        /// <summary>
+        /// Get the BasePlayer entity from a HumanPlayer component.
+        /// </summary>
+        private BasePlayer GetPlayerFromHumanPlayer(object humanPlayer)
+        {
             if (humanPlayer == null) return null;
-
             var playerField = humanPlayer.GetType().GetField("player");
             if (playerField == null) return null;
-
             return playerField.GetValue(humanPlayer) as BasePlayer;
         }
 
         /// <summary>
-        /// Get the HumanNPCInfo object for an NPC via its HumanPlayer component.
+        /// Find an NPC's BasePlayer using HumanNPC's own lookup.
         /// </summary>
-        private object GetNpcInfo(BasePlayer npcPlayer)
+        private BasePlayer FindNpcPlayer(ulong npcId)
         {
-            if (npcPlayer == null) return null;
+            return GetPlayerFromHumanPlayer(FindHumanPlayer(npcId));
+        }
 
-            var humanPlayer = npcPlayer.GetComponent("HumanPlayer");
+        /// <summary>
+        /// Get the HumanNPCInfo object from a HumanPlayer component.
+        /// </summary>
+        private object GetInfoFromHumanPlayer(object humanPlayer)
+        {
             if (humanPlayer == null) return null;
-
             var infoField = humanPlayer.GetType().GetField("info");
             if (infoField == null) return null;
-
             return infoField.GetValue(humanPlayer);
+        }
+
+        /// <summary>
+        /// Get the HumanNPCInfo object for an NPC by ID.
+        /// </summary>
+        private object GetNpcInfo(ulong npcId)
+        {
+            return GetInfoFromHumanPlayer(FindHumanPlayer(npcId));
         }
 
         #endregion
@@ -359,30 +376,14 @@ namespace Oxide.Plugins
             {
                 try
                 {
-                    // Check if entity still exists
-                    if (npcPlayer == null || npcPlayer.IsDestroyed)
-                    {
-                        // Try to find via HumanNPC's lookup
-                        npcPlayer = FindNpcPlayer(npcId);
-                        if (npcPlayer == null)
-                        {
-                            if (retries > 0)
-                            {
-                                Puts($"[Spawn] NPC {npcId} not found yet, retrying ({retries} left)");
-                                ApplySettingsWhenReady(null, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
-                                return;
-                            }
-                            CompleteCommand(cmdId, "failed", "NPC disappeared before settings could be applied");
-                            return;
-                        }
-                    }
-
-                    var info = GetNpcInfo(npcPlayer);
-                    if (info == null)
+                    // Use HumanNPC's own lookup to get the HumanPlayer component
+                    // (GetComponent("HumanPlayer") doesn't work for nested plugin classes)
+                    var humanPlayer = FindHumanPlayer(npcId);
+                    if (humanPlayer == null)
                     {
                         if (retries > 0)
                         {
-                            Puts($"[Spawn] HumanPlayer component not ready for {npcId}, retrying ({retries} left)");
+                            Puts($"[Spawn] HumanPlayer not found for {npcId}, retrying ({retries} left)");
                             ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
                             return;
                         }
@@ -390,17 +391,35 @@ namespace Oxide.Plugins
                         return;
                     }
 
-                    // Set all fields on the HumanNPCInfo object
-                    // HumanNPC defaults: invulnerability=true, respawn=true, health=50
-                    // We override ALL of these with user-requested values
+                    var info = GetInfoFromHumanPlayer(humanPlayer);
+                    if (info == null)
+                    {
+                        if (retries > 0)
+                        {
+                            Puts($"[Spawn] NPC info not ready for {npcId}, retrying ({retries} left)");
+                            ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
+                            return;
+                        }
+                        CompleteCommand(cmdId, "failed", "NPC info never initialized");
+                        return;
+                    }
+
+                    npcPlayer = GetPlayerFromHumanPlayer(humanPlayer);
+                    if (npcPlayer == null)
+                    {
+                        CompleteCommand(cmdId, "failed", "Could not get BasePlayer from HumanPlayer");
+                        return;
+                    }
+
+                    // Override HumanNPC defaults (invulnerability=true, respawn=true, health=50)
                     SetField(info, "health", health);
-                    SetField(info, "invulnerability", invulnerable);  // bool field, default is true!
+                    SetField(info, "invulnerability", invulnerable);
                     SetField(info, "hostile", hostile);
                     SetField(info, "lootable", lootable);
                     SetField(info, "damageAmount", damage);
                     SetField(info, "speed", speed);
                     SetField(info, "collisionRadius", detectRadius);
-                    SetField(info, "respawn", respawn);               // bool field, default is true!
+                    SetField(info, "respawn", respawn);
                     SetField(info, "respawnSeconds", (float)respawnDelay);
 
                     if (!string.IsNullOrEmpty(kit))
@@ -415,22 +434,27 @@ namespace Oxide.Plugins
                     npcPlayer._maxHealth = health;
                     npcPlayer.SendNetworkUpdate();
 
-                    // Tell HumanNPC to refresh this NPC with updated info
+                    // Tell HumanNPC to refresh this NPC with updated settings
                     HumanNPC.Call("UpdateNPC", npcPlayer, true);
 
-                    // Apply kit items after UpdateNPC (which re-initializes inventory)
-                    if (!string.IsNullOrEmpty(kit) && Kits != null)
+                    // Re-apply health after UpdateNPC (it may reset it)
+                    timer.Once(0.3f, () =>
                     {
-                        timer.Once(0.3f, () =>
+                        var p = FindNpcPlayer(npcId);
+                        if (p != null)
                         {
-                            var p = FindNpcPlayer(npcId);
-                            if (p != null)
+                            p.health = health;
+                            p._maxHealth = health;
+                            p.SendNetworkUpdate();
+
+                            // Apply kit items after UpdateNPC (which re-initializes inventory)
+                            if (!string.IsNullOrEmpty(kit) && Kits != null)
                             {
                                 p.inventory.Strip();
                                 Kits.Call("GiveKit", p, kit);
                             }
-                        });
-                    }
+                        }
+                    });
 
                     Puts($"[Spawn] Settings applied for NPC {npcId}: invuln={invulnerable}, hostile={hostile}, hp={health}, respawn={respawn}");
                     CompleteCommand(cmdId, "done", npcId.ToString());
@@ -550,7 +574,7 @@ namespace Oxide.Plugins
 
             try
             {
-                var info = GetNpcInfo(npcPlayer);
+                var info = GetNpcInfo(npcId);
                 switch (field)
                 {
                     case "health":
