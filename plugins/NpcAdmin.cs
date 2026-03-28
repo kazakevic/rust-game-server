@@ -164,14 +164,30 @@ namespace Oxide.Plugins
         #region NPC Lookup
 
         /// <summary>
-        /// Get the HumanPlayer component for an NPC using HumanNPC's own lookup.
-        /// BasePlayer.FindByID doesn't work for NPCs, and GetComponent("HumanPlayer")
-        /// doesn't work because HumanPlayer is a nested class inside HumanNPC plugin.
+        /// Get the HumanPlayer component directly from a BasePlayer entity.
+        /// Can't use GetComponent("HumanPlayer") because it's a nested class in another plugin.
+        /// Instead iterate all components and match by type name.
+        /// </summary>
+        private object GetHumanPlayerComponent(BasePlayer player)
+        {
+            if (player == null) return null;
+            foreach (var comp in player.GetComponents<Component>())
+            {
+                if (comp != null && comp.GetType().Name == "HumanPlayer")
+                    return comp;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Find a HumanPlayer component by NPC ID using HumanNPC's string-based lookup.
+        /// FindHumanPlayerByID(ulong) fails via Oxide.Call due to parameter boxing issues.
+        /// FindHumanPlayer(string) searches by UserIDString and works reliably.
         /// </summary>
         private object FindHumanPlayer(ulong npcId)
         {
             if (HumanNPC == null) return null;
-            return HumanNPC.Call("FindHumanPlayerByID", npcId);
+            return HumanNPC.Call("FindHumanPlayer", npcId.ToString());
         }
 
         /// <summary>
@@ -186,7 +202,7 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Find an NPC's BasePlayer using HumanNPC's own lookup.
+        /// Find an NPC's BasePlayer by ID.
         /// </summary>
         private BasePlayer FindNpcPlayer(ulong npcId)
         {
@@ -376,9 +392,15 @@ namespace Oxide.Plugins
             {
                 try
                 {
-                    // Use HumanNPC's own lookup to get the HumanPlayer component
-                    // (GetComponent("HumanPlayer") doesn't work for nested plugin classes)
-                    var humanPlayer = FindHumanPlayer(npcId);
+                    // Get the HumanPlayer component directly from the BasePlayer entity
+                    // by iterating components (avoids Oxide.Call issues and nested type issues)
+                    if (npcPlayer == null || npcPlayer.IsDestroyed)
+                    {
+                        npcPlayer = FindNpcPlayer(npcId);
+                    }
+
+                    object humanPlayer = npcPlayer != null ? GetHumanPlayerComponent(npcPlayer) : null;
+
                     if (humanPlayer == null)
                     {
                         if (retries > 0)
@@ -403,8 +425,6 @@ namespace Oxide.Plugins
                         CompleteCommand(cmdId, "failed", "NPC info never initialized");
                         return;
                     }
-
-                    npcPlayer = GetPlayerFromHumanPlayer(humanPlayer);
                     if (npcPlayer == null)
                     {
                         CompleteCommand(cmdId, "failed", "Could not get BasePlayer from HumanPlayer");
