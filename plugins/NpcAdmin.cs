@@ -392,16 +392,25 @@ namespace Oxide.Plugins
             {
                 try
                 {
+                    Puts($"[DEBUG] ApplySettings START for {npcId}, retries={retries}");
+                    Puts($"[DEBUG] Desired: invuln={invulnerable}, hp={health}, kit={kit}, hostile={hostile}");
+
                     if (npcPlayer == null || npcPlayer.IsDestroyed)
+                    {
+                        Puts($"[DEBUG] npcPlayer null/destroyed, re-finding...");
                         npcPlayer = FindNpcPlayer(npcId);
+                    }
+
+                    Puts($"[DEBUG] npcPlayer after find: {(npcPlayer != null ? npcPlayer.userID.ToString() : "NULL")}");
 
                     object humanPlayer = npcPlayer != null ? GetHumanPlayerComponent(npcPlayer) : null;
+                    Puts($"[DEBUG] humanPlayer component: {(humanPlayer != null ? humanPlayer.GetType().FullName : "NULL")}");
 
                     if (humanPlayer == null)
                     {
                         if (retries > 0)
                         {
-                            Puts($"[Spawn] HumanPlayer not found for {npcId}, retrying ({retries} left)");
+                            Puts($"[DEBUG] HumanPlayer not found for {npcId}, retrying ({retries} left)");
                             ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
                             return;
                         }
@@ -410,22 +419,22 @@ namespace Oxide.Plugins
                     }
 
                     var info = GetInfoFromHumanPlayer(humanPlayer);
+                    Puts($"[DEBUG] info object: {(info != null ? info.GetType().FullName : "NULL")}");
+
                     if (info == null)
                     {
                         if (retries > 0)
                         {
-                            Puts($"[Spawn] NPC info not ready for {npcId}, retrying ({retries} left)");
+                            Puts($"[DEBUG] NPC info not ready for {npcId}, retrying ({retries} left)");
                             ApplySettingsWhenReady(npcPlayer, npcId, cmdId, health, kit, hostile, invulnerable, lootable, damage, speed, detectRadius, respawn, respawnDelay, retries - 1);
                             return;
                         }
                         CompleteCommand(cmdId, "failed", "NPC info never initialized");
                         return;
                     }
-                    if (npcPlayer == null)
-                    {
-                        CompleteCommand(cmdId, "failed", "Could not get BasePlayer from HumanPlayer");
-                        return;
-                    }
+
+                    // Log current info values BEFORE we change them
+                    LogInfoFields(info, "BEFORE SetField");
 
                     // Override HumanNPC defaults (invulnerability=true, respawn=true, health=50)
                     // Must set these BEFORE RefreshNPC so SpawnNPC reads correct values
@@ -442,25 +451,52 @@ namespace Oxide.Plugins
                     if (!string.IsNullOrEmpty(kit))
                     {
                         var spawnkitField = info.GetType().GetField("spawnkit");
+                        Puts($"[DEBUG] spawnkit field found: {spawnkitField != null}, setting to: '{kit}'");
                         if (spawnkitField != null)
                             spawnkitField.SetValue(info, kit);
                     }
 
+                    // Log info values AFTER we changed them
+                    LogInfoFields(info, "AFTER SetField");
+
                     // RefreshNPC kills the entity and respawns via SpawnNPC, which calls
                     // UpdateHealth (applies health from info) and UpdateInventory (applies kit from info.spawnkit).
-                    // This is essential — UpdateNPC does NOT call UpdateInventory or UpdateHealth.
+                    Puts($"[DEBUG] Calling RefreshNPC for {npcId}...");
                     HumanNPC.Call("RefreshNPC", npcPlayer, true);
+                    Puts($"[DEBUG] RefreshNPC returned for {npcId}");
 
-                    // After respawn, re-apply health on the new BasePlayer entity
-                    // (SpawnNPC creates a new entity so we must find it again)
-                    timer.Once(1f, () =>
+                    // After respawn, verify the new entity has correct settings
+                    timer.Once(1.5f, () =>
                     {
+                        Puts($"[DEBUG] Post-refresh check for {npcId}...");
                         var p = FindNpcPlayer(npcId);
+                        Puts($"[DEBUG] Post-refresh player: {(p != null ? p.userID.ToString() : "NULL")}, destroyed={p?.IsDestroyed}");
+
                         if (p != null)
                         {
+                            Puts($"[DEBUG] Post-refresh hp={p.health}/{p._maxHealth}");
+
+                            // Check info on the new HumanPlayer component
+                            var newHp = GetHumanPlayerComponent(p);
+                            if (newHp != null)
+                            {
+                                var newInfo = GetInfoFromHumanPlayer(newHp);
+                                LogInfoFields(newInfo, "POST-REFRESH");
+                            }
+                            else
+                            {
+                                Puts($"[DEBUG] Post-refresh: NO HumanPlayer component on new entity!");
+                            }
+
                             p.health = health;
                             p._maxHealth = health;
                             p.SendNetworkUpdate();
+
+                            // Log inventory
+                            int beltCount = p.inventory?.containerBelt?.itemList?.Count ?? 0;
+                            int mainCount = p.inventory?.containerMain?.itemList?.Count ?? 0;
+                            int wearCount = p.inventory?.containerWear?.itemList?.Count ?? 0;
+                            Puts($"[DEBUG] Post-refresh inventory: belt={beltCount}, main={mainCount}, wear={wearCount}");
                         }
                     });
 
@@ -473,6 +509,27 @@ namespace Oxide.Plugins
                     CompleteCommand(cmdId, "done", npcId.ToString());
                 }
             });
+        }
+
+        private void LogInfoFields(object info, string label)
+        {
+            if (info == null) { Puts($"[DEBUG] [{label}] info is NULL"); return; }
+            try
+            {
+                var t = info.GetType();
+                var invuln = t.GetField("invulnerability")?.GetValue(info);
+                var hp = t.GetField("health")?.GetValue(info);
+                var spawnkit = t.GetField("spawnkit")?.GetValue(info);
+                var hostileVal = t.GetField("hostile")?.GetValue(info);
+                var respawnVal = t.GetField("respawn")?.GetValue(info);
+                var enableVal = t.GetField("enable")?.GetValue(info);
+                var dmg = t.GetField("damageAmount")?.GetValue(info);
+                Puts($"[DEBUG] [{label}] invuln={invuln}, hp={hp}, kit='{spawnkit}', hostile={hostileVal}, respawn={respawnVal}, enable={enableVal}, dmg={dmg}");
+            }
+            catch (Exception ex)
+            {
+                Puts($"[DEBUG] [{label}] Error reading fields: {ex.Message}");
+            }
         }
 
         private void HandleRemove(int cmdId, JObject data)
@@ -701,9 +758,10 @@ namespace Oxide.Plugins
             var field = obj.GetType().GetField(fieldName);
             if (field == null)
             {
-                Puts($"[SetField] Field '{fieldName}' not found on {obj.GetType().Name}");
+                Puts($"[SetField] Field '{fieldName}' NOT FOUND on {obj.GetType().FullName} — available fields: {string.Join(", ", obj.GetType().GetFields().Select(f => f.Name))}");
                 return;
             }
+            Puts($"[SetField] {fieldName}: {field.GetValue(obj)} -> {value} (fieldType={field.FieldType.Name}, valueType={value?.GetType()?.Name})");
 
             if (field.FieldType == typeof(float) && value is double)
                 field.SetValue(obj, (float)(double)value);
