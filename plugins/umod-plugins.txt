@@ -16,3 +16,7 @@ HumanNPC
 PathFinding
 Waypoints
 WoundedScreams
+NoGiveNotices
+InstantCraft
+BGrade
+RecyclerSpeed
