@@ -392,12 +392,8 @@ namespace Oxide.Plugins
             {
                 try
                 {
-                    // Get the HumanPlayer component directly from the BasePlayer entity
-                    // by iterating components (avoids Oxide.Call issues and nested type issues)
                     if (npcPlayer == null || npcPlayer.IsDestroyed)
-                    {
                         npcPlayer = FindNpcPlayer(npcId);
-                    }
 
                     object humanPlayer = npcPlayer != null ? GetHumanPlayerComponent(npcPlayer) : null;
 
@@ -432,6 +428,7 @@ namespace Oxide.Plugins
                     }
 
                     // Override HumanNPC defaults (invulnerability=true, respawn=true, health=50)
+                    // Must set these BEFORE RefreshNPC so SpawnNPC reads correct values
                     SetField(info, "health", health);
                     SetField(info, "invulnerability", invulnerable);
                     SetField(info, "hostile", hostile);
@@ -449,16 +446,14 @@ namespace Oxide.Plugins
                             spawnkitField.SetValue(info, kit);
                     }
 
-                    // Apply health on the BasePlayer entity
-                    npcPlayer.health = health;
-                    npcPlayer._maxHealth = health;
-                    npcPlayer.SendNetworkUpdate();
+                    // RefreshNPC kills the entity and respawns via SpawnNPC, which calls
+                    // UpdateHealth (applies health from info) and UpdateInventory (applies kit from info.spawnkit).
+                    // This is essential — UpdateNPC does NOT call UpdateInventory or UpdateHealth.
+                    HumanNPC.Call("RefreshNPC", npcPlayer, true);
 
-                    // Tell HumanNPC to refresh this NPC with updated settings
-                    HumanNPC.Call("UpdateNPC", npcPlayer, true);
-
-                    // Re-apply health after UpdateNPC (it may reset it)
-                    timer.Once(0.3f, () =>
+                    // After respawn, re-apply health on the new BasePlayer entity
+                    // (SpawnNPC creates a new entity so we must find it again)
+                    timer.Once(1f, () =>
                     {
                         var p = FindNpcPlayer(npcId);
                         if (p != null)
@@ -466,17 +461,10 @@ namespace Oxide.Plugins
                             p.health = health;
                             p._maxHealth = health;
                             p.SendNetworkUpdate();
-
-                            // Apply kit items after UpdateNPC (which re-initializes inventory)
-                            if (!string.IsNullOrEmpty(kit) && Kits != null)
-                            {
-                                p.inventory.Strip();
-                                Kits.Call("GiveKit", p, kit);
-                            }
                         }
                     });
 
-                    Puts($"[Spawn] Settings applied for NPC {npcId}: invuln={invulnerable}, hostile={hostile}, hp={health}, respawn={respawn}");
+                    Puts($"[Spawn] Settings applied for NPC {npcId}: invuln={invulnerable}, hostile={hostile}, hp={health}, kit={kit}, respawn={respawn}");
                     CompleteCommand(cmdId, "done", npcId.ToString());
                 }
                 catch (Exception ex)
