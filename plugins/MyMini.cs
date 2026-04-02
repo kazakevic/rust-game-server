@@ -8,25 +8,14 @@ namespace Oxide.Plugins
     public class MyMini : RustPlugin
     {
         private const string Prefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
-        private const string PermUse = "mymini.use";
         private const float FuelAmount = 150f;
         private const float SpawnDistance = 5f;
 
         private Dictionary<ulong, ulong> _playerMinis = new Dictionary<ulong, ulong>();
 
-        private void Init()
-        {
-            permission.RegisterPermission(PermUse, this);
-        }
-
         [ChatCommand("mymini")]
         private void CmdMyMini(BasePlayer player, string command, string[] args)
         {
-            if (!permission.UserHasPermission(player.UserIDString, PermUse))
-            {
-                player.ChatMessage("You don't have permission to use this command.");
-                return;
-            }
 
             // Check if player already has an active mini
             if (_playerMinis.TryGetValue(player.userID, out ulong existingId))
@@ -75,12 +64,6 @@ namespace Oxide.Plugins
         [ChatCommand("nomini")]
         private void CmdNoMini(BasePlayer player, string command, string[] args)
         {
-            if (!permission.UserHasPermission(player.UserIDString, PermUse))
-            {
-                player.ChatMessage("You don't have permission to use this command.");
-                return;
-            }
-
             if (!_playerMinis.TryGetValue(player.userID, out ulong miniId))
             {
                 player.ChatMessage("You don't have an active minicopter.");
