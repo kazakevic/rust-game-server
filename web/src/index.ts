@@ -284,16 +284,16 @@ const app = new Elysia()
     }
   })
 
-  // Logs page
-  .get("/logs", async ({ headers }) => {
+  // Server Logs page
+  .get("/server-logs", async ({ headers }) => {
     const blocked = authGuard(headers);
     if (blocked) return blocked;
     const logs = await getServerLogs(200);
     return new Response(logsPage(logs), { headers: { "Content-Type": "text/html" } });
   })
 
-  // API: Logs
-  .get("/api/logs", async ({ headers, query }) => {
+  // API: Server Logs
+  .get("/api/server-logs", async ({ headers, query }) => {
     const blocked = authGuard(headers);
     if (blocked) return { error: "unauthorized" };
     const tail = Math.min(parseInt(query.tail || "200") || 200, 5000);

@@ -47,11 +47,16 @@ export function logsPage(logs: string) {
       async function fetchLogs() {
         const tail = tailSelect.value;
         try {
-          const res = await fetch('/api/logs?tail=' + tail);
+          const res = await fetch('/api/server-logs?tail=' + tail);
           const data = await res.json();
           if (data.logs) {
+            const distFromBottom = logOutput.scrollHeight - logOutput.scrollTop - logOutput.clientHeight;
             logOutput.textContent = data.logs;
-            scrollToBottom();
+            if (autoScroll.checked) {
+              logOutput.scrollTop = logOutput.scrollHeight;
+            } else {
+              logOutput.scrollTop = logOutput.scrollHeight - logOutput.clientHeight - distFromBottom;
+            }
           }
         } catch (e) {
           console.error('Failed to fetch logs:', e);
@@ -62,5 +67,5 @@ export function logsPage(logs: string) {
       tailSelect.addEventListener('change', fetchLogs);
       setInterval(fetchLogs, 5000);
     </script>
-  `, { activePage: "logs" });
+  `, { activePage: "server-logs" });
 }
