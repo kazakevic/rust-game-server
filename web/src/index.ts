@@ -790,6 +790,26 @@ const app = new Elysia()
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 
+  .post("/api/server/wipe", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    webLog.warn("server", "Server wipe requested");
+    // Read server identity from settings (fallback to env/default)
+    let identity = process.env.RUST_SERVER_IDENTITY || "docker";
+    try {
+      const file = Bun.file("/cfg/server-settings.json");
+      if (await file.exists()) {
+        const settings = await file.json();
+        if (settings.serverIdentity) identity = settings.serverIdentity;
+      }
+    } catch {}
+    const saveDir = `/rust/server/${identity}`;
+    webLog.warn("server", `Wiping save files in ${saveDir}`);
+    await execInServer(["sh", "-c", `rm -f "${saveDir}"/*.map "${saveDir}"/*.sav "${saveDir}"/*.sav.bak`]);
+    await restartServer();
+    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
   // API: Plugin controls
   .post("/api/plugins/reload-all", async ({ headers }) => {
     const blocked = authGuard(headers);

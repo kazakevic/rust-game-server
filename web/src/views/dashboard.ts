@@ -15,6 +15,9 @@ export function dashboardPage(data: DashboardData) {
     ? `<form method="POST" action="/api/server/restart" onsubmit="return confirm('Are you sure you want to restart the server?')">
         ${button("Restart", { variant: "warning", size: "sm", type: "submit" })}
       </form>
+      <form method="POST" action="/api/server/wipe" onsubmit="return confirm('⚠️ This will delete all map and save data and restart the server. Are you sure?')">
+        ${button("Wipe", { variant: "destructive", size: "sm", type: "submit" })}
+      </form>
       <form method="POST" action="/api/server/stop" onsubmit="return confirm('Are you sure you want to stop the server?')">
         ${button("Stop", { variant: "destructive", size: "sm", type: "submit" })}
       </form>`
