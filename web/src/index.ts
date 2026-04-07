@@ -13,6 +13,7 @@ import { configsListPage, configsEditPage } from "./views/configs";
 import { npcsPage } from "./views/npcs";
 import { stackSizePage } from "./views/stacksize";
 import { settingsPage, type ServerSettings } from "./views/settings";
+import { pluginsPage } from "./views/plugins";
 import * as npcDb from "./npc-db";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
@@ -849,6 +850,71 @@ const app = new Elysia()
       await rcon.command("weather.fog 0.5");
     } catch {}
     return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+  })
+
+  // uMod Plugins Manager
+  .get("/plugins", async ({ headers, query }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const pluginsFile = "/plugins/umod-plugins.txt";
+    const success = query.saved === "1" ? "Plugin list saved." : undefined;
+    const error = query.reinstalled === "1" ? undefined : undefined;
+    const reinstallSuccess = query.reinstalled === "1" ? "Plugin reinstall triggered. Check server logs for progress." : undefined;
+
+    let plugins: string[] = [];
+    let pageError: string | undefined;
+
+    try {
+      const file = Bun.file(pluginsFile);
+      if (await file.exists()) {
+        const raw = await file.text();
+        plugins = raw
+          .split("\n")
+          .map(l => l.replace(/#.*/, "").trim())
+          .filter(Boolean);
+      }
+    } catch (e: any) {
+      pageError = "Failed to read plugin list: " + e.message;
+    }
+
+    return new Response(pluginsPage({ plugins, error: pageError, success: success || reinstallSuccess }), {
+      headers: { "Content-Type": "text/html" },
+    });
+  })
+
+  .post("/api/plugins/umod/save", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+
+    const pluginsFile = "/plugins/umod-plugins.txt";
+    try {
+      const form = body as Record<string, string>;
+      const raw = (form.plugins || "").trim();
+      const plugins = raw
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      const content = `# uMod Plugin List\n# Add one plugin name per line (must match the name on umod.org)\n\n${plugins.join("\n")}\n`;
+      await Bun.write(pluginsFile, content);
+      webLog.info("plugins", `uMod plugin list saved (${plugins.length} plugins)`);
+      return new Response(null, { status: 302, headers: { Location: "/plugins?saved=1" } });
+    } catch (e: any) {
+      webLog.error("plugins", `Failed to save uMod plugin list: ${e.message}`);
+      return new Response(null, { status: 302, headers: { Location: "/plugins" } });
+    }
+  })
+
+  .post("/api/plugins/umod/reinstall", async ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    webLog.info("plugins", "uMod plugin reinstall triggered");
+    try {
+      await execInServer(["bash", "/scripts/install-plugins.sh"]);
+      await rcon.command("oxide.reload *");
+    } catch {}
+    return new Response(null, { status: 302, headers: { Location: "/plugins?reinstalled=1" } });
   })
 
   .post("/api/plugins/redownload", async ({ headers }) => {
