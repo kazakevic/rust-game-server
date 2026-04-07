@@ -9,11 +9,30 @@ PLUGIN_VERSIONS_DIR="${RUST_SERVER_DIR}/oxide/.plugin-versions"
 mkdir -p "${OXIDE_PLUGINS_DIR}"
 mkdir -p "${PLUGIN_VERSIONS_DIR}"
 
-# Copy any .cs files mounted in /plugins directly
+# Sync local .cs plugins — copy new/updated, remove ones no longer present
+LOCAL_PLUGINS_MANIFEST="${RUST_SERVER_DIR}/oxide/.local-plugins"
+touch "${LOCAL_PLUGINS_MANIFEST}"
+
+# Remove plugins that were previously installed locally but are no longer in /plugins
+while IFS= read -r installed_name; do
+    [ -z "$installed_name" ] && continue
+    if [ ! -f "/plugins/${installed_name}.cs" ]; then
+        echo "  -> Removing local plugin no longer present: ${installed_name}"
+        rm -f "${OXIDE_PLUGINS_DIR}/${installed_name}.cs"
+    fi
+done < "${LOCAL_PLUGINS_MANIFEST}"
+
 if ls /plugins/*.cs 1>/dev/null 2>&1; then
-    echo "==> Copying local plugin files..."
-    cp /plugins/*.cs "${OXIDE_PLUGINS_DIR}/"
-    echo "==> Local plugins copied."
+    echo "==> Syncing local plugin files..."
+    > "${LOCAL_PLUGINS_MANIFEST}"
+    for src in /plugins/*.cs; do
+        name=$(basename "$src" .cs)
+        cp "$src" "${OXIDE_PLUGINS_DIR}/"
+        echo "$name" >> "${LOCAL_PLUGINS_MANIFEST}"
+    done
+    echo "==> Local plugins synced."
+else
+    > "${LOCAL_PLUGINS_MANIFEST}"
 fi
 
 # Download plugins listed in umod-plugins.txt

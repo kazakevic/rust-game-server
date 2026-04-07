@@ -34,7 +34,7 @@ plugins:
 	docker compose exec rust-server /scripts/install-plugins.sh
 
 reload:
-	docker compose exec rust-server bash -c 'cp /plugins/*.cs /rust/oxide/plugins/ && echo "Plugins copied — Oxide will auto-reload."'
+	docker compose exec rust-server /scripts/install-plugins.sh
 
 update-umod:
 	docker compose exec rust-server /scripts/update-umod.sh
