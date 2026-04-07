@@ -83,6 +83,7 @@ export function layout(title: string, content: string, opts?: { activePage?: str
         <a href="/dashboard" class="text-base font-bold tracking-tight text-zinc-900">Rust<span class="text-accent">GG</span></a>
         <div class="flex items-center gap-5">
           ${navLink("/dashboard", "Dashboard", "dashboard")}
+          ${navLink("/players", "Players", "players")}
           ${serverDropdown}
           ${pluginsDropdown}
         </div>

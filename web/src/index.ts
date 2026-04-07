@@ -14,6 +14,7 @@ import { npcsPage } from "./views/npcs";
 import { stackSizePage } from "./views/stacksize";
 import { settingsPage, type ServerSettings } from "./views/settings";
 import { pluginsPage } from "./views/plugins";
+import { playersPage } from "./views/players";
 import * as npcDb from "./npc-db";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
@@ -139,6 +140,31 @@ const app = new Elysia()
       return { response };
     } catch (e: any) {
       webLog.error("rcon", `Command failed: ${command} — ${e.message}`);
+      return { error: e.message };
+    }
+  })
+
+  // Players page
+  .get("/players", ({ headers }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return blocked;
+    return new Response(playersPage(), { headers: { "Content-Type": "text/html" } });
+  })
+
+  // API: Teleport to player
+  .post("/api/players/teleport", async ({ headers, body }) => {
+    const blocked = authGuard(headers);
+    if (blocked) return { error: "unauthorized" };
+
+    const { steamId } = body as { steamId: string };
+    if (!steamId) return { error: "steamId is required" };
+
+    try {
+      const response = await rcon.command(`teleport ${steamId}`);
+      webLog.info("players", `Teleported to player ${steamId}`);
+      return { response };
+    } catch (e: any) {
+      webLog.error("players", `Teleport failed for ${steamId}: ${e.message}`);
       return { error: e.message };
     }
   })
