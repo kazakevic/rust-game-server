@@ -8,7 +8,6 @@ import { dashboardPage } from "./views/dashboard";
 import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
 import { webLogsPage } from "./views/web-logs";
-import { configPage } from "./views/config";
 import { configsListPage, configsEditPage } from "./views/configs";
 import { npcsPage } from "./views/npcs";
 import { stackSizePage } from "./views/stacksize";
@@ -321,92 +320,6 @@ const app = new Elysia()
     return { logs };
   })
 
-  // Config page
-  .get("/config/gungame", async ({ headers, query }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
-
-    let config: Record<string, any> | null = null;
-    let error: string | undefined;
-    let success: string | undefined;
-
-    if (query.saved === "1") success = "Config saved and plugin reloaded.";
-
-    try {
-      const configPath = "/rust-data/oxide/config/GunGame.json";
-      const file = Bun.file(configPath);
-      const raw = await file.text();
-      config = JSON.parse(raw);
-    } catch (e: any) {
-      error = "Failed to load config: " + e.message;
-    }
-
-    return new Response(configPage({ config, error, success }), {
-      headers: { "Content-Type": "text/html" },
-    });
-  })
-
-  // API: Save config
-  .post("/api/config/gungame/save", async ({ headers, body }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
-
-    const configPath = "/rust-data/oxide/config/GunGame.json";
-
-    try {
-      // Read current config
-      const file = Bun.file(configPath);
-      const raw = await file.text();
-      const config = JSON.parse(raw);
-
-      const form = body as Record<string, string>;
-
-      // Apply simple fields
-      const intFields = ["XPPerKill", "HeadshotBonusXP", "DistanceBonusXPPer50m", "XPPerAnimalKill", "XPPerNPCKill", "MaxLevel", "TopListSize", "KillRewardMinAmount", "KillRewardMaxAmount"];
-      for (const key of intFields) {
-        if (key in form) config[key] = parseInt(form[key]) || 0;
-      }
-
-      const floatKey = "DifficultyMultiplier (scales XP earned: 0.5=hard, 1.0=normal, 2.0=easy)";
-      if (floatKey in form) config[floatKey] = parseFloat(form[floatKey]) || 1.0;
-
-      const strFields = ["KitPrefix", "ChatPrefix", "KillRewardItemShortname"];
-      for (const key of strFields) {
-        if (key in form) config[key] = form[key];
-      }
-
-      if ("WipeOnNewSave" in form) config.WipeOnNewSave = String(form.WipeOnNewSave).includes("true");
-      config.TestMode = "TestMode" in form && String(form.TestMode).includes("true");
-
-      // Rebuild thresholds based on MaxLevel
-      const maxLevel = config.MaxLevel ?? 5;
-      const newThresholds: Record<string, number> = {};
-      for (let level = 2; level <= maxLevel; level++) {
-        const formVal = form[`threshold_${level}`];
-        if (formVal !== undefined) {
-          newThresholds[String(level)] = parseInt(formVal as string) || 0;
-        } else if (config.LevelXPThresholds?.[String(level)] !== undefined) {
-          newThresholds[String(level)] = config.LevelXPThresholds[String(level)];
-        }
-      }
-      config.LevelXPThresholds = newThresholds;
-
-      // Write config back
-      const json = JSON.stringify(config, null, 2);
-      await Bun.write(configPath, json);
-
-      // Reload plugin to pick up changes
-      try { await rcon.command("oxide.reload GunGame"); } catch {}
-
-      webLog.info("config", "GunGame config saved and plugin reloaded");
-      return new Response(null, { status: 302, headers: { Location: "/config/gungame?saved=1" } });
-    } catch (e: any) {
-      webLog.error("config", `Failed to save GunGame config: ${e.message}`);
-      const configData = { config: null, error: "Failed to save config: " + e.message };
-      return new Response(configPage(configData), { headers: { "Content-Type": "text/html" } });
-    }
-  })
-
   // StackSizeController config page
   .get("/config/stacksize", async ({ headers, query }) => {
     const blocked = authGuard(headers);
@@ -648,9 +561,6 @@ const app = new Elysia()
           cfgLines.push("craft.instant true");
           cfgLines.push("decay.scale 0");
           break;
-        case "gungame":
-          cfgLines.push("server.pve false");
-          break;
         default: // vanilla
           cfgLines.push("server.pve false");
           break;
@@ -821,16 +731,6 @@ const app = new Elysia()
     } catch {
       return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
     }
-  })
-
-  .post("/api/plugins/reload-gungame", async ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
-    webLog.info("plugins", "Reload GunGame plugin requested");
-    try {
-      await rcon.command("oxide.reload GunGame");
-    } catch {}
-    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
   })
 
   .post("/api/world/set-day", async ({ headers }) => {

@@ -87,7 +87,6 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
               { value: "pve", label: "PvE", selected: s?.serverMode === "pve" },
               { value: "softcore", label: "Softcore", selected: s?.serverMode === "softcore" },
               { value: "creative", label: "Creative", selected: s?.serverMode === "creative" },
-              { value: "gungame", label: "GunGame", selected: s?.serverMode === "gungame" },
             ],
             class: "w-full",
           })}
@@ -96,7 +95,6 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
             <p><span class="font-medium text-zinc-600">PvE</span> \u2014 No player damage (server.pve true)</p>
             <p><span class="font-medium text-zinc-600">Softcore</span> \u2014 Built-in Rust softcore mode</p>
             <p><span class="font-medium text-zinc-600">Creative</span> \u2014 PvE + instant craft + no decay</p>
-            <p><span class="font-medium text-zinc-600">GunGame</span> \u2014 Uses GunGame plugin for progression</p>
           </div>
         </div>
       `)}

@@ -1,19 +1,11 @@
 # rust-gg
 
-A Dockerized **Rust dedicated server** running a custom **Gun Game** competition mode, with a web-based admin dashboard for real-time server management.
+A Dockerized **vanilla Rust dedicated server** built for streamers, with anti-stream-sniper protection and a web-based admin dashboard for real-time server management.
 
-## What is Gun Game?
-
-Players start with a basic weapon and earn XP through kills. Each level unlocks a new weapon tier. Features include:
-
-- XP progression with headshot, distance, and assist bonuses
-- Kill streaks, revenge kills, first blood, and underdog bonuses
-- Prestige system — reset your level for a permanent XP multiplier
-- Bounty system — a map marker appears on the kill leader, worth 2x XP
-- Spawn protection — 3 seconds of invulnerability after respawn
-- CS2-style kill feed with weapon, distance, and headshot info
-- In-game shop — buy weapon attachments with in-game currency
+- Vanilla gameplay — no custom game modes or progression mods
+- Anti-stream-sniper protection to keep streamers safe from viewers tracking them
 - NPC support — spawn and configure AI enemies via the web dashboard
+- Web admin dashboard — server controls, RCON, logs, config, and plugin management
 
 ---
 
@@ -35,13 +27,8 @@ Players start with a basic weapon and earn XP through kills. Each level unlocks 
 ```
 rust-gg/
 ├── plugins/           # Custom Oxide/uMod C# plugins
-│   ├── GunGame.cs         # Core game mode (XP, levels, kits, UI)
-│   ├── GunGameShop.cs     # In-game attachment shop
 │   ├── NpcAdmin.cs        # Web-driven NPC manager
-│   ├── BountySystem.cs    # Bounty on kill leader
-│   ├── KillFeed.cs        # On-screen kill notifications
-│   ├── SpawnProtection.cs # Post-spawn invulnerability
-│   └── MyMini.cs          # /mymini personal minicopter command
+│   └── umod-plugins.txt   # External uMod plugins to auto-install
 ├── web/               # Admin dashboard (Bun + TypeScript)
 ├── cfg/               # Server config files
 ├── scripts/           # uMod/plugin install scripts
@@ -92,7 +79,7 @@ All configuration lives in `.env`. Key variables:
 
 ```env
 # Server
-RUST_SERVER_NAME=My Gun Game Server
+RUST_SERVER_NAME=My Rust Server
 RUST_SERVER_SEED=12345          # Map seed
 RUST_SERVER_WORLDSIZE=3500      # Map size
 RUST_SERVER_MAXPLAYERS=100
@@ -109,8 +96,6 @@ WEB_PORT=3000
 ADMIN_USER=admin
 ADMIN_PASS=changeme             # Change this
 ```
-
-GunGame plugin settings are editable live from the web dashboard under **GunGame Config**.
 
 ---
 
@@ -141,7 +126,6 @@ GunGame plugin settings are editable live from the web dashboard under **GunGame
 | Dashboard | Server status, CPU/RAM, player count, plugin reload, time/weather controls |
 | RCON | Live command terminal with history |
 | NPC Manager | Spawn, configure, and remove AI NPCs |
-| GunGame Config | Edit XP values, level thresholds, difficulty multiplier |
 | Stack Sizes | Global and per-item stack multiplier config |
 | Server Settings | Hostname, seed, world size, max players, game mode |
 | Config Browser | Edit raw `.cfg` files |
@@ -155,13 +139,7 @@ GunGame plugin settings are editable live from the web dashboard under **GunGame
 
 | Plugin | Description |
 |---|---|
-| `GunGame.cs` | Core game mode — XP, levels, weapon kits, UI, stats |
-| `GunGameShop.cs` | Attachment shop using in-game currency |
 | `NpcAdmin.cs` | SQLite-based NPC control (web → plugin queue) |
-| `BountySystem.cs` | Map bounty on kill leader with XP multiplier |
-| `KillFeed.cs` | On-screen kill notifications with weapon and distance |
-| `SpawnProtection.cs` | 3-second post-spawn invulnerability |
-| `MyMini.cs` | `/mymini` command for personal minicopter |
 
 ### External Plugins (auto-installed)
 

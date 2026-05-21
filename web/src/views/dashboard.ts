@@ -54,9 +54,6 @@ export function dashboardPage(data: DashboardData) {
           <form method="POST" action="/api/plugins/reload-all">
             ${button("Reload All Plugins", { variant: "outline", size: "sm", type: "submit" })}
           </form>
-          <form method="POST" action="/api/plugins/reload-gungame">
-            ${button("Reload GunGame", { variant: "outline", size: "sm", type: "submit" })}
-          </form>
           <form method="POST" action="/api/plugins/redownload">
             ${button("Re-download Plugins", { variant: "outline", size: "sm", type: "submit", attrs: `onclick="this.disabled=true;this.textContent='Downloading...'"` })}
           </form>
