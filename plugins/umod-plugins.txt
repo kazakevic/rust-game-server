@@ -6,17 +6,3 @@
 #   GatherManager
 #   Vanish
 #   NTeleportation
-
-GatherManager
-Kits
-Vanish
-NTeleportation
-StackSizeController
-HumanNPC
-PathFinding
-Waypoints
-WoundedScreams
-NoGiveNotices
-InstantCraft
-BGrade
-RecyclerSpeed
