@@ -43,9 +43,8 @@ export function layout(title: string, content: string, opts?: { activePage?: str
     ${dropdownLink("/configs", "Config Files", "configs")}
   `);
 
-  const pluginsDropdown = navDropdown("Plugins", ["npcs", "stacksize", "plugins"], `
+  const pluginsDropdown = navDropdown("Plugins", ["stacksize", "plugins"], `
     ${dropdownLink("/plugins", "uMod Plugins", "plugins")}
-    ${dropdownLink("/npcs", "NPC Manager", "npcs")}
     ${dropdownLink("/config/stacksize", "Stack Sizes", "stacksize")}
   `);
 

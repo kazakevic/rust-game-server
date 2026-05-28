@@ -9,12 +9,10 @@ import { rconPage } from "./views/rcon";
 import { logsPage } from "./views/logs";
 import { webLogsPage } from "./views/web-logs";
 import { configsListPage, configsEditPage } from "./views/configs";
-import { npcsPage } from "./views/npcs";
 import { stackSizePage } from "./views/stacksize";
 import { settingsPage, type ServerSettings } from "./views/settings";
 import { pluginsPage } from "./views/plugins";
 import { playersPage } from "./views/players";
-import * as npcDb from "./npc-db";
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 
@@ -118,13 +116,6 @@ const app = new Elysia()
     return new Response(rconPage(), { headers: { "Content-Type": "text/html" } });
   })
 
-  // NPC Manager page
-  .get("/npcs", ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
-    return new Response(npcsPage(), { headers: { "Content-Type": "text/html" } });
-  })
-
   // API: RCON command
   .post("/api/rcon", async ({ headers, body }) => {
     const blocked = authGuard(headers);
@@ -179,107 +170,6 @@ const app = new Elysia()
       return { players };
     } catch (e: any) {
       return { error: e.message, players: [] };
-    }
-  })
-
-  // API: NPC Management (SQLite-backed)
-  .get("/api/npcs", ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    try {
-      const npcs = npcDb.getNpcs();
-      return { npcs };
-    } catch (e: any) {
-      webLog.error("npcs", `Failed to list NPCs: ${e.message}`);
-      return { error: e.message, npcs: [] };
-    }
-  })
-
-  .post("/api/npcs", async ({ headers, body }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    const params = body as any;
-    if (!params.steamId) return { error: "steamId is required" };
-
-    try {
-      const cmdId = npcDb.queueSpawn({
-        steamId: params.steamId,
-        name: params.name || "NPC",
-        health: parseFloat(params.health) || 100,
-        kit: params.kit || undefined,
-        hostile: params.hostile === true || params.hostile === "true",
-        invulnerable: params.invulnerable === true || params.invulnerable === "true",
-        lootable: params.lootable !== false && params.lootable !== "false",
-        damage: parseFloat(params.damage) || 10,
-        speed: parseFloat(params.speed) || 3,
-        detectRadius: parseFloat(params.detectRadius) || 30,
-        respawn: params.respawn === true || params.respawn === "true",
-        respawnDelay: parseInt(params.respawnDelay) || 60,
-      });
-      webLog.info("npcs", `Spawn command queued (cmd=${cmdId}, name=${params.name})`);
-      return { commandId: cmdId };
-    } catch (e: any) {
-      webLog.error("npcs", `Failed to queue spawn: ${e.message}`);
-      return { error: e.message };
-    }
-  })
-
-  .delete("/api/npcs/:id", ({ headers, params }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    try {
-      const cmdId = npcDb.queueRemove(params.id);
-      webLog.info("npcs", `Remove command queued (cmd=${cmdId}, npc=${params.id})`);
-      return { commandId: cmdId };
-    } catch (e: any) {
-      webLog.error("npcs", `Failed to queue remove: ${e.message}`);
-      return { error: e.message };
-    }
-  })
-
-  .delete("/api/npcs", ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    try {
-      const cmdId = npcDb.queueRemoveAll();
-      webLog.info("npcs", `Remove all command queued (cmd=${cmdId})`);
-      return { commandId: cmdId };
-    } catch (e: any) {
-      webLog.error("npcs", `Failed to queue remove all: ${e.message}`);
-      return { error: e.message };
-    }
-  })
-
-  .patch("/api/npcs/:id", ({ headers, params, body }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    const { field, value } = body as any;
-    if (!field) return { error: "field is required" };
-
-    try {
-      const cmdId = npcDb.queueUpdate(params.id, field, value);
-      webLog.info("npcs", `Update command queued (cmd=${cmdId}, npc=${params.id}, ${field}=${value})`);
-      return { commandId: cmdId };
-    } catch (e: any) {
-      webLog.error("npcs", `Failed to queue update: ${e.message}`);
-      return { error: e.message };
-    }
-  })
-
-  .get("/api/npcs/commands/:id", ({ headers, params }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
-
-    try {
-      const cmd = npcDb.getCommandStatus(parseInt(params.id));
-      return { command: cmd };
-    } catch (e: any) {
-      return { error: e.message };
     }
   })
 
