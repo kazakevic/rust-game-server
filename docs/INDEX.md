@@ -7,6 +7,17 @@ then drill into the relevant area.
 > **Maintenance rule:** after implementing a feature, add a short doc (or update the
 > closest existing one) and add a one-line headline + path here in INDEX.md.
 
+## Product & Vision
+
+- **[Vision & Strategy](product/vision.md)** — Who it's for (mid-tier creators), the
+  snipe-proof positioning, why we win, and the KPIs. Read this first for the *why*.
+- **[Market & Competition](product/market-and-competition.md)** — Rust market sizing and a
+  teardown of existing streamer/creator servers (Rustafied, Rustoria, OTV) and the gap.
+- **[The Stream-Sniping Problem & Anti-Snipe Spec](product/anti-stream-snipe.md)** — Why
+  native Streamer Mode fails and the layered server-side anti-snipe solution (P0/P1/P2).
+- **[Product Roadmap](product/roadmap.md)** — Phased plan, per-phase KPIs, risk register,
+  and the (deferred) Facepunch-compliant monetization model.
+
 ## Overview
 
 - **[Architecture Overview](architecture.md)** — The two-service stack, how they share
