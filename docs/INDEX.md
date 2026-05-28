@@ -17,8 +17,9 @@ then drill into the relevant area.
 
 - **[Docker & Compose](infrastructure/docker.md)** — Services, Dockerfiles, ports,
   shared `rust-data` volume and `./cfg`, dev override.
-- **[Deployment, Makefile & Configuration](infrastructure/deployment.md)** — `.env`
-  config, all `make` commands, Dokploy production deploy, first-boot flow, security.
+- **[Deployment, CI/CD, Makefile & Configuration](infrastructure/deployment.md)** —
+  `.env` config, all `make` commands, the CI/CD pipeline (GitHub → Dokploy on a VPS
+  building from `compose.yaml`), first-boot flow, security.
 - **[Rust Game Server (entrypoint & boot)](infrastructure/game-server.md)** —
   `entrypoint.sh` boot sequence, SteamCMD update, settings/cfg loading, server identity.
 - **[Reference: Rust Dedicated Server on Linux](infrastructure/rust-server-reference.md)**

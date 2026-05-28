@@ -36,11 +36,48 @@ services load it via `env_file`. Key groups:
 | `make web-restart` | Rebuild + restart only `web-admin` |
 | `make dev` | Start `web-admin` in watch/hot-reload mode (dev override) |
 
-## Production (Dokploy)
+## CI/CD & Production (Dokploy)
 
-Production deploys via **Dokploy** on a VPS. Keep `compose.yaml` Dokploy-compatible:
-plain Compose, named volumes, `.env`-driven config, no host-specific paths beyond the
-Docker socket mount. Avoid changes that only work with the local Makefile flow.
+There is **no separate CI pipeline** (no GitHub Actions, GitLab CI, etc.). The whole
+delivery flow is a single VPS running **Docker** + **[Dokploy](https://dokploy.com/)**,
+and `compose.yaml` is the single source of truth for what ships.
+
+### Pipeline
+
+```
+git push  →  GitHub (kazakevic/rust-game-server)  →  Dokploy on the VPS
+                                                         │
+                                          reads compose.yaml, builds both images:
+                                          • rust-server  ← ./Dockerfile
+                                          • web-admin    ← ./web/Dockerfile
+                                                         │
+                                          docker compose up -d (recreates changed services)
+```
+
+1. Push to the GitHub repo (the production branch).
+2. Dokploy is configured as a **Compose** application pointing at this repo and
+   `compose.yaml`. On a new commit it pulls, then builds and (re)deploys.
+3. Both services are built from source on the VPS via their `build:` contexts
+   (`.` and `./web`) — there is no image registry in the loop.
+4. Changed services are recreated; the named `rust-data` volume and `./cfg` persist
+   across deploys, so server identity, map, plugins, and saved settings survive.
+
+> The Rust game server pins `platform: linux/amd64` (SteamCMD/RustDedicated is x86-64
+> only) and runs with `seccomp:unconfined` — both must be preserved for the build to
+> boot on the VPS. See the comments in `compose.yaml`.
+
+### Keeping `compose.yaml` Dokploy-compatible
+
+Because Dokploy deploys straight from `compose.yaml`, every prod-affecting change must
+land there (not only in the Makefile, which is local-only):
+
+- Plain Compose, named volumes, `.env`-driven config.
+- No host-specific paths beyond the Docker socket mount (`/var/run/docker.sock`) and
+  the repo-relative bind mounts (`./plugins`, `./cfg`).
+- Set production secrets/config via Dokploy's environment (it provides the `.env` the
+  services load) — never commit `.env`.
+- Avoid changes that only work through the local `make` flow or `compose.dev.yaml`
+  (the dev override is **not** used in prod).
 
 ## First boot
 
