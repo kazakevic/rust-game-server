@@ -69,14 +69,15 @@ export function card(opts: { title?: string; description?: string; class?: strin
 
 // ─── Stats Card ─────────────────────────────────────────────────────────────
 
-export function statsCard(label: string, value: string, opts?: { icon?: string; detail?: string }): string {
+export function statsCard(label: string, value: string, opts?: { icon?: string; detail?: string; valueId?: string; detailId?: string }): string {
+  const hasDetail = opts?.detail !== undefined || opts?.detailId !== undefined;
   return `<div class="rounded-xl border border-zinc-200 bg-white shadow-sm px-5 py-4">
     <div class="flex items-center justify-between">
       <p class="text-sm font-medium text-zinc-500">${label}</p>
       ${opts?.icon || ""}
     </div>
-    <p class="mt-1 text-2xl font-semibold tracking-tight text-zinc-900">${value}</p>
-    ${opts?.detail ? `<p class="mt-1 text-xs text-zinc-400">${opts.detail}</p>` : ""}
+    <p ${opts?.valueId ? `id="${opts.valueId}" ` : ""}class="mt-1 text-2xl font-semibold tracking-tight text-zinc-900">${value}</p>
+    ${hasDetail ? `<p ${opts?.detailId ? `id="${opts.detailId}" ` : ""}class="mt-1 text-xs text-zinc-400">${opts?.detail || ""}</p>` : ""}
   </div>`;
 }
 

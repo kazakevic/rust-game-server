@@ -21,6 +21,9 @@ Defines the two-service stack and how they share state.
   query `28017/udp`, companion app `28082/tcp`.
 - Volumes: `rust-data:/rust` (the install), `./plugins:/plugins:ro`,
   `./cfg:/cfg:ro`.
+- `stop_grace_period: 5m` — Rust saves the world on SIGTERM; the default 10s is too
+  short for a large map. The web admin passes a matching per-call timeout
+  (`RUST_STOP_TIMEOUT`, default 300s) when it stops/restarts via the Docker socket.
 - `stdin_open` + `tty` so the RustDedicated console attaches.
 
 ### `web-admin`

@@ -47,14 +47,18 @@ export async function getServerStats() {
   }
 }
 
+// Rust saves the world on SIGTERM; give it room before Docker SIGKILLs (default 10s
+// is too tight for a large map). `t` is the grace period in seconds for this call.
+const STOP_TIMEOUT_SEC = parseInt(process.env.RUST_STOP_TIMEOUT || "300");
+
 export async function restartServer() {
   const container = await getContainer();
-  await container.restart();
+  await container.restart({ t: STOP_TIMEOUT_SEC });
 }
 
 export async function stopServer() {
   const container = await getContainer();
-  await container.stop();
+  await container.stop({ t: STOP_TIMEOUT_SEC });
 }
 
 export async function startServer() {

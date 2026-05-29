@@ -41,6 +41,38 @@ function authGuard(headers: Record<string, string | undefined>): Response | null
   return null;
 }
 
+// JSON auth check for fetch-driven API endpoints (returns an error body, not a redirect).
+function apiUnauthorized(headers: Record<string, string | undefined>): { error: string } | null {
+  const token = getCookie(headers, "session");
+  return validateSession(token) ? null : { error: "unauthorized" };
+}
+
+// Container status + stats + live serverinfo, shared by the dashboard page and its poll endpoint.
+async function getDashboardState() {
+  const [status, stats] = await Promise.all([getServerStatus(), getServerStats()]);
+
+  const serverInfo = { hostname: "", players: "", maxPlayers: "", map: "", fps: "" };
+  if (status.running) {
+    try {
+      const raw = await rcon.command("serverinfo");
+      const info = JSON.parse(raw);
+      serverInfo.hostname = String(info.Hostname ?? "");
+      serverInfo.players = String(info.Players ?? "0");
+      serverInfo.maxPlayers = String(info.MaxPlayers ?? "0");
+      serverInfo.map = String(info.Map ?? "");
+      serverInfo.fps = String(info.Framerate ?? info.Fps ?? "");
+    } catch {}
+  }
+
+  return { status, stats, serverInfo };
+}
+
+// Fire a long-running container op without blocking the HTTP response; failures land
+// in the web log and surface to the client via the status poll, not a hung request.
+function runServerAction(label: string, fn: () => Promise<unknown>) {
+  fn().catch((e: any) => webLog.error("server", `${label} failed: ${e?.message || e}`));
+}
+
 const app = new Elysia()
   // Login page
   .get("/login", () => new Response(loginPage(), { headers: { "Content-Type": "text/html" } }))
@@ -89,24 +121,17 @@ const app = new Elysia()
     const blocked = authGuard(headers);
     if (blocked) return blocked;
 
-    const [status, stats] = await Promise.all([getServerStatus(), getServerStats()]);
-
-    let serverInfo = { hostname: "", players: "", maxPlayers: "", map: "", fps: "" };
-    if (status.running) {
-      try {
-        const raw = await rcon.command("serverinfo");
-        const info = JSON.parse(raw);
-        serverInfo.hostname = String(info.Hostname ?? "");
-        serverInfo.players = String(info.Players ?? "0");
-        serverInfo.maxPlayers = String(info.MaxPlayers ?? "0");
-        serverInfo.map = String(info.Map ?? "");
-        serverInfo.fps = String(info.Framerate ?? info.Fps ?? "");
-      } catch {}
-    }
-
-    return new Response(dashboardPage({ status, stats, serverInfo }), {
+    const state = await getDashboardState();
+    return new Response(dashboardPage(state), {
       headers: { "Content-Type": "text/html" },
     });
+  })
+
+  // API: live dashboard state (polled by the dashboard for in-place updates)
+  .get("/api/server/status", async ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
+    return await getDashboardState();
   })
 
   // RCON page
@@ -565,49 +590,53 @@ const app = new Elysia()
     return new Response(null, { status: 302, headers: { Location: "/configs" } });
   })
 
-  // API: Server controls
-  .post("/api/server/restart", async ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
+  // API: Server controls. These return immediately; the actual container op runs in the
+  // background (start is quick, but stop/restart/wipe can take a while as Rust saves the
+  // world). The dashboard reflects progress via the /api/server/status poll.
+  .post("/api/server/restart", ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
     webLog.info("server", "Server restart requested");
-    await restartServer();
-    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    runServerAction("Restart", restartServer);
+    return { ok: true };
   })
 
-  .post("/api/server/stop", async ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
+  .post("/api/server/stop", ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
     webLog.warn("server", "Server stop requested");
-    await stopServer();
-    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    runServerAction("Stop", stopServer);
+    return { ok: true };
   })
 
-  .post("/api/server/start", async ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
+  .post("/api/server/start", ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
     webLog.info("server", "Server start requested");
-    await startServer();
-    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    runServerAction("Start", startServer);
+    return { ok: true };
   })
 
-  .post("/api/server/wipe", async ({ headers }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return blocked;
+  .post("/api/server/wipe", ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
     webLog.warn("server", "Server wipe requested");
-    // Read server identity from settings (fallback to env/default)
-    let identity = process.env.RUST_SERVER_IDENTITY || "docker";
-    try {
-      const file = Bun.file("/cfg/server-settings.json");
-      if (await file.exists()) {
-        const settings = await file.json();
-        if (settings.serverIdentity) identity = settings.serverIdentity;
-      }
-    } catch {}
-    const saveDir = `/rust/server/${identity}`;
-    webLog.warn("server", `Wiping save files in ${saveDir}`);
-    await execInServer(["sh", "-c", `rm -f "${saveDir}"/*.map "${saveDir}"/*.sav "${saveDir}"/*.sav.bak`]);
-    await restartServer();
-    return new Response(null, { status: 302, headers: { Location: "/dashboard" } });
+    runServerAction("Wipe", async () => {
+      // Read server identity from settings (fallback to env/default)
+      let identity = process.env.RUST_SERVER_IDENTITY || "docker";
+      try {
+        const file = Bun.file("/cfg/server-settings.json");
+        if (await file.exists()) {
+          const settings = await file.json();
+          if (settings.serverIdentity) identity = settings.serverIdentity;
+        }
+      } catch {}
+      const saveDir = `/rust/server/${identity}`;
+      webLog.warn("server", `Wiping save files in ${saveDir}`);
+      await execInServer(["sh", "-c", `rm -f "${saveDir}"/*.map "${saveDir}"/*.sav "${saveDir}"/*.sav.bak`]);
+      await restartServer();
+    });
+    return { ok: true };
   })
 
   // API: Plugin controls

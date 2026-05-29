@@ -4,6 +4,10 @@ services:
     platform: linux/amd64
     container_name: rust-server
     restart: unless-stopped
+    # Rust saves the world on SIGTERM; the default 10s grace is too short for a large
+    # map, so give it room before Docker SIGKILLs. The web admin passes a matching
+    # per-call timeout (RUST_STOP_TIMEOUT, default 300s) to `docker stop`.
+    stop_grace_period: 5m
     # steamcmd's bundled Steam runtime trips Docker's default seccomp filter
     # on some VPS kernels ("futex robust_list not initialized by pthreads"
     # segfault loop). Disabling seccomp for this container resolves it.

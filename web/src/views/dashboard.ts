@@ -9,21 +9,18 @@ interface DashboardData {
 
 export function dashboardPage(data: DashboardData) {
   const { status, stats, serverInfo } = data;
-  const uptime = status.startedAt ? timeSince(status.startedAt) : "N/A";
+  const uptime = status.running && status.startedAt ? timeSince(status.startedAt) : "N/A";
 
-  const serverControls = status.running
-    ? `<form method="POST" action="/api/server/restart" onsubmit="return confirm('Are you sure you want to restart the server?')">
-        ${button("Restart", { variant: "warning", size: "sm", type: "submit" })}
-      </form>
-      <form method="POST" action="/api/server/wipe" onsubmit="return confirm('⚠️ This will delete all map and save data and restart the server. Are you sure?')">
-        ${button("Wipe", { variant: "destructive", size: "sm", type: "submit" })}
-      </form>
-      <form method="POST" action="/api/server/stop" onsubmit="return confirm('Are you sure you want to stop the server?')">
-        ${button("Stop", { variant: "destructive", size: "sm", type: "submit" })}
-      </form>`
-    : `<form method="POST" action="/api/server/start">
-        ${button("Start Server", { variant: "success", size: "sm", type: "submit" })}
-      </form>`;
+  // Both control groups are rendered; the visible one is toggled client-side from live status.
+  const runningControls = `<div id="controls-running" class="flex items-center gap-2 ${status.running ? "" : "hidden"}">
+      ${button("Restart", { variant: "warning", size: "sm", attrs: `data-action="restart" data-confirm="Restart the server?"` })}
+      ${button("Wipe", { variant: "destructive", size: "sm", attrs: `data-action="wipe" data-confirm="⚠️ This deletes all map and save data, then restarts. Are you sure?"` })}
+      ${button("Stop", { variant: "destructive", size: "sm", attrs: `data-action="stop" data-confirm="Stop the server?"` })}
+    </div>`;
+
+  const stoppedControls = `<div id="controls-stopped" class="${status.running ? "hidden" : ""}">
+      ${button("Start Server", { variant: "success", size: "sm", attrs: `data-action="start"` })}
+    </div>`;
 
   const statusValue = `<span class="flex items-center gap-2.5">
     ${statusDot(status.running)}
@@ -31,24 +28,32 @@ export function dashboardPage(data: DashboardData) {
   </span>`;
 
   return layout("Dashboard", `
-    ${pageHeader("Dashboard", { actions: `<div class="flex items-center gap-2">${serverControls}</div>` })}
+    ${pageHeader("Dashboard", { actions: `${runningControls}${stoppedControls}` })}
+
+    <div id="action-banner" class="hidden mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+      <svg class="animate-spin h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      <span id="action-banner-text"></span>
+    </div>
+    <div id="action-error" class="hidden mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-width="2" d="M12 8v4m0 4h.01"/></svg>
+      <span id="action-error-text"></span>
+    </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      ${statsCard("Status", "", { icon: statusValue })}
-      ${statsCard("Uptime", uptime)}
-      ${statsCard("CPU", `${stats.cpu}%`)}
-      ${statsCard("Memory", `${stats.memoryUsed} MB`, { detail: `${stats.memoryPercent}% of ${stats.memoryLimit} MB` })}
+      ${statsCard("Status", statusValue, { valueId: "tile-status" })}
+      ${statsCard("Uptime", uptime, { valueId: "tile-uptime" })}
+      ${statsCard("CPU", `${stats.cpu}%`, { valueId: "tile-cpu" })}
+      ${statsCard("Memory", `${stats.memoryUsed} MB`, { valueId: "tile-mem", detail: `${stats.memoryPercent}% of ${stats.memoryLimit} MB`, detailId: "tile-mem-detail" })}
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-      ${statsCard("Hostname", serverInfo.hostname || "N/A")}
-      ${statsCard("Players", `${serverInfo.players || "0"} / ${serverInfo.maxPlayers || "0"}`)}
-      ${statsCard("Map", serverInfo.map || "N/A")}
-      ${statsCard("Server FPS", serverInfo.fps || "N/A")}
+      ${statsCard("Hostname", serverInfo.hostname || "N/A", { valueId: "tile-hostname" })}
+      ${statsCard("Players", `${serverInfo.players || "0"} / ${serverInfo.maxPlayers || "0"}`, { valueId: "tile-players" })}
+      ${statsCard("Map", serverInfo.map || "N/A", { valueId: "tile-map" })}
+      ${statsCard("Server FPS", serverInfo.fps || "N/A", { valueId: "tile-fps" })}
     </div>
 
-    ${status.running ? `
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div id="live-controls" class="grid grid-cols-1 lg:grid-cols-3 gap-4 ${status.running ? "" : "hidden"}">
       ${section("Plugin Controls", `
         <div class="flex flex-wrap gap-2">
           <form method="POST" action="/api/plugins/reload-all">
@@ -88,14 +93,143 @@ export function dashboardPage(data: DashboardData) {
         </div>
       `, { description: "Control weather effects" })}
     </div>
-    ` : ""}
 
-    <script>setTimeout(() => location.reload(), 15000);</script>
+    <script>
+      // ── Live dashboard: poll status, update tiles in place, drive control buttons ──
+      const PENDING = {
+        start:   { label: 'Starting server…',                 done: (s) => s.status.running },
+        stop:    { label: 'Stopping server… (saving world)',  done: (s) => !s.status.running },
+        restart: { label: 'Restarting server… (saving world)', done: (s, p) => s.status.running && s.status.startedAt && s.status.startedAt !== p.prevStartedAt },
+        wipe:    { label: 'Wiping map & restarting server…',  done: (s, p) => s.status.running && s.status.startedAt && s.status.startedAt !== p.prevStartedAt },
+      };
+      const POLL_MS = 5000;
+      const PENDING_TIMEOUT_MS = 300000; // give a save/restart up to 5 min before giving up
+
+      let pending = null;          // { type, prevStartedAt, deadline }
+      let lastRunning = ${status.running};
+      let lastStartedAt = ${JSON.stringify(status.startedAt || "")};
+
+      function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+      function el(id) { return document.getElementById(id); }
+      function setText(id, v) { const n = el(id); if (n) n.textContent = v; }
+
+      function timeSince(dateStr) {
+        const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+        if (seconds < 0 || isNaN(seconds)) return 'N/A';
+        if (seconds < 60) return seconds + 's';
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + 'm';
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + 'h ' + (minutes % 60) + 'm';
+        const days = Math.floor(hours / 24);
+        return days + 'd ' + (hours % 24) + 'h';
+      }
+
+      function statusHtml(running, text) {
+        const color = running ? 'bg-emerald-500' : 'bg-red-400';
+        const ring = running ? 'ring-emerald-500/20' : 'ring-red-400/20';
+        const ping = running ? '<span class="absolute inline-flex h-full w-full animate-ping rounded-full ' + color + ' opacity-75"></span>' : '';
+        const dot = '<span class="relative flex h-2.5 w-2.5">' + ping + '<span class="relative inline-flex h-2.5 w-2.5 rounded-full ' + color + ' ring-4 ' + ring + '"></span></span>';
+        const textCls = running ? 'text-emerald-700' : 'text-red-600';
+        return '<span class="flex items-center gap-2.5">' + dot + '<span class="' + textCls + ' font-medium">' + esc(text) + '</span></span>';
+      }
+
+      function tickUptime() {
+        setText('tile-uptime', lastRunning && lastStartedAt ? timeSince(lastStartedAt) : 'N/A');
+      }
+
+      function updateTiles(s) {
+        const st = el('tile-status'); if (st) st.innerHTML = statusHtml(s.status.running, s.status.status);
+        setText('tile-cpu', s.stats.cpu + '%');
+        setText('tile-mem', s.stats.memoryUsed + ' MB');
+        setText('tile-mem-detail', s.stats.memoryPercent + '% of ' + s.stats.memoryLimit + ' MB');
+        const si = s.serverInfo || {};
+        setText('tile-hostname', si.hostname || 'N/A');
+        setText('tile-players', (si.players || '0') + ' / ' + (si.maxPlayers || '0'));
+        setText('tile-map', si.map || 'N/A');
+        setText('tile-fps', si.fps || 'N/A');
+        tickUptime();
+      }
+
+      function applyPending() {
+        const banner = el('action-banner');
+        el('action-banner-text').textContent = pending ? PENDING[pending.type].label : '';
+        banner.classList.toggle('hidden', !pending);
+        document.querySelectorAll('[data-action]').forEach(b => {
+          b.disabled = !!pending;
+          b.classList.toggle('opacity-50', !!pending);
+          b.classList.toggle('pointer-events-none', !!pending);
+        });
+      }
+
+      function updateGroups() {
+        // While an action is in flight, hide both control sets and the live (running-only) controls.
+        el('controls-running').classList.toggle('hidden', !!pending || !lastRunning);
+        el('controls-stopped').classList.toggle('hidden', !!pending || lastRunning);
+        const live = el('live-controls');
+        if (live) live.classList.toggle('hidden', !!pending || !lastRunning);
+      }
+
+      function render(s) {
+        lastRunning = !!s.status.running;
+        lastStartedAt = s.status.startedAt || '';
+        updateTiles(s);
+        if (pending && (PENDING[pending.type].done(s, pending) || Date.now() > pending.deadline)) {
+          pending = null;
+        }
+        applyPending();
+        updateGroups();
+      }
+
+      function showError(msg) {
+        const box = el('action-error');
+        el('action-error-text').textContent = msg;
+        box.classList.remove('hidden');
+        clearTimeout(showError._t);
+        showError._t = setTimeout(() => box.classList.add('hidden'), 6000);
+      }
+
+      async function refresh() {
+        try {
+          const res = await fetch('/api/server/status', { headers: { Accept: 'application/json' } });
+          const data = await res.json();
+          if (data && data.error === 'unauthorized') { location.href = '/login'; return; }
+          if (data && data.status) render(data);
+        } catch (e) { /* transient — keep last known state */ }
+      }
+
+      async function doAction(btn) {
+        const action = btn.dataset.action;
+        const confirmMsg = btn.dataset.confirm;
+        if (confirmMsg && !confirm(confirmMsg)) return;
+        pending = { type: action, prevStartedAt: lastStartedAt, deadline: Date.now() + PENDING_TIMEOUT_MS };
+        applyPending();
+        updateGroups();
+        try {
+          const res = await fetch('/api/server/' + action, { method: 'POST' });
+          const data = await res.json().catch(() => ({}));
+          if (data && data.error === 'unauthorized') { location.href = '/login'; return; }
+          if (data && data.error) { showError(data.error); pending = null; applyPending(); updateGroups(); return; }
+        } catch (e) {
+          showError('Request failed: ' + e.message); pending = null; applyPending(); updateGroups(); return;
+        }
+        setTimeout(refresh, 1500); // let Docker register the change, then resume polling
+      }
+
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (btn) { e.preventDefault(); doAction(btn); }
+      });
+
+      setInterval(refresh, POLL_MS);
+      setInterval(tickUptime, 1000);
+    </script>
   `, { activePage: "dashboard" });
 }
 
 function timeSince(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 0) return "N/A";
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;

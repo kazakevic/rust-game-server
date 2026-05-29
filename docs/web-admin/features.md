@@ -10,9 +10,16 @@ What each page does and the API endpoints behind it. All routes are gated by
 ## Dashboard — `GET /dashboard`
 Status/stats tiles (running state, uptime, CPU, memory) plus live `serverinfo` via RCON
 (hostname, players, map, FPS). Server controls and (when running) plugin/world/weather
-controls. Auto-refreshes every 15s.
-- `POST /api/server/restart | stop | start` — container lifecycle.
-- `POST /api/server/wipe` — delete map/save files for the active identity, then restart.
+controls. **Live, no full-page reload:** the page polls `GET /api/server/status` every 5s
+and updates tiles + swaps the Start↔Stop controls in place (uptime ticks every 1s).
+- `GET /api/server/status` — JSON `{ status, stats, serverInfo }` for the live poll.
+- `POST /api/server/restart | stop | start` — container lifecycle. **Non-blocking:** each
+  returns `{ ok: true }` immediately and runs the Docker op in the background. The button
+  enters a "Stopping…/Restarting…" pending state with a progress banner; the poll detects
+  completion (stop → not running; restart/wipe → `startedAt` changed) and restores controls
+  (5-min safety timeout). Failures are written to the web log.
+- `POST /api/server/wipe` — delete map/save files for the active identity, then restart
+  (also non-blocking).
 - `POST /api/plugins/reload-all` — `oxide.reload *`.
 - `POST /api/plugins/redownload` — run `install-plugins.sh` then reload.
 - `POST /api/world/set-day | set-night` — `env.time`.
