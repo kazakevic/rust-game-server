@@ -61,6 +61,21 @@ countdown (`RUST_UPDATE_RESTART_DELAY` minutes, checkpoints at 5m/3m/1m/30s/10s)
   won't auto-reschedule until a newer one appears. Called by the Cancel button and by every
   manual lifecycle action.
 
+## `a2s.ts` — query-port (A2S) check
+
+Minimal A2S_INFO ("Source Engine Query") UDP client — the same query the in-game server
+browser, BattleMetrics, and the Steam master server use to discover a server.
+- `queryA2SInfo(host, port, timeoutMs=2500)` — sends A2S_INFO, handles the 0x41 challenge
+  handshake (resends with the challenge), parses the 0x49 reply into
+  `{ answering, name, map, players, maxPlayers }`. Never rejects: failures resolve to
+  `{ answering: false, error }`.
+
+Powers `GET /api/server/queryport` and the dashboard's **Server Visibility** panel. It runs
+web-admin → `rust-server` over the Docker network, so it proves the *server* is answering;
+it cannot detect an **external** firewall block (a packet to our own public IP loops back
+without traversing the edge firewall). Therefore `answering: true` here while the server is
+still missing from the browser ⇒ the query port is blocked by an external firewall.
+
 ## `rcon.ts` — `RconClient`
 
 WebSocket client for RustDedicated web RCON (`ws://host:port/password`).

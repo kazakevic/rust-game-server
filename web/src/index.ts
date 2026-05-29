@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession, validateApiToken } from "./auth";
 import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer, checkForUpdate } from "./docker";
 import { RconClient } from "./rcon";
+import { queryA2SInfo } from "./a2s";
 import { startUpdateScheduler, getSchedulerStatus, cancelScheduledRestart } from "./update-scheduler";
 import * as webLog from "./logger";
 import { loginPage } from "./views/login";
@@ -154,6 +155,28 @@ const app = new Elysia()
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
     return await getDashboardState();
+  })
+
+  // API: query-port (A2S) check — is the server answering the Steam discovery query that
+  // the in-game browser / BattleMetrics use? Queries rust-server over the Docker network, so
+  // it proves the *server* is answering; it can't see an external firewall block (see a2s.ts).
+  .get("/api/server/queryport", async ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
+    const status = await getServerStatus();
+    // Resolve the query port the same way the entrypoint does: settings JSON, then env, then default.
+    let queryPort = parseInt(process.env.RUST_SERVER_QUERYPORT || "28017");
+    try {
+      const file = Bun.file("/cfg/server-settings.json");
+      if (await file.exists()) {
+        const s = await file.json();
+        if (s.queryPort) queryPort = parseInt(String(s.queryPort));
+      }
+    } catch {}
+    if (!status.running) return { running: false, answering: false, queryPort };
+    const host = process.env.RUST_CONTAINER_NAME || "rust-server";
+    const info = await queryA2SInfo(host, queryPort);
+    return { running: true, queryPort, ...info };
   })
 
   // API: check whether a newer Rust build is available (buildid compare via SteamCMD)
@@ -699,10 +722,33 @@ const app = new Elysia()
           if (settings.serverIdentity) identity = settings.serverIdentity;
         }
       } catch {}
-      const saveDir = `/rust/server/${identity}`;
-      webLog.warn("server", `Wiping save files in ${saveDir}`);
-      await execInServer(["sh", "-c", `rm -f "${saveDir}"/*.map "${saveDir}"/*.sav "${saveDir}"/*.sav.bak`]);
-      await restartServer();
+      // rust-data is mounted here at /rust-data (it is /rust inside the game container).
+      // Order matters: Rust rewrites the world .sav on SIGTERM, so deleting the saves and
+      // then restarting silently undoes the wipe (the shutdown-save recreates exactly what
+      // we deleted, and the server boots straight back into the old map). So we must
+      // STOP first — letting Rust take its final save and fully exit — then delete from
+      // our own mount while the container is down, then START into a freshly generated
+      // map. (Deleting via `docker exec` is not an option here: exec needs the container
+      // running, which would re-save on the subsequent stop and reintroduce this very bug.)
+      const saveDir = `/rust-data/server/${identity}`;
+      webLog.warn("server", "Stopping server for wipe (waiting for Rust's final save)...");
+      await stopServer();
+      try {
+        let removed = 0;
+        if (existsSync(saveDir)) {
+          for (const name of readdirSync(saveDir)) {
+            if (name.endsWith(".sav") || name.endsWith(".sav.bak") || name.endsWith(".map")) {
+              unlinkSync(join(saveDir, name));
+              removed++;
+            }
+          }
+        }
+        webLog.warn("server", `Wiped ${removed} save file(s) from ${saveDir}`);
+      } finally {
+        // Always bring the server back up, even if deletion threw, so a failed wipe
+        // never leaves the server offline.
+        await startServer();
+      }
     });
     return { ok: true };
   })

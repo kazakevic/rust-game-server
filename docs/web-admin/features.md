@@ -30,8 +30,17 @@ and updates tiles + swaps the Start↔Stop controls in place (uptime ticks every
   enters a "Stopping…/Restarting…" pending state with a progress banner; the poll detects
   completion (stop → not running; restart/wipe → `startedAt` changed) and restores controls
   (5-min safety timeout). Failures are written to the web log.
-- `POST /api/server/wipe` — delete map/save files for the active identity, then restart
-  (also non-blocking).
+- `POST /api/server/wipe` — **stop** the container, delete the map/save files for the
+  active identity from the web admin's `rust-data` mount, then **start** fresh
+  (non-blocking). The stop-before-delete order matters: Rust re-saves the world on
+  SIGTERM, so a delete-then-restart would silently undo the wipe.
+- `GET /api/server/queryport` — A2S "is the server discoverable?" check. Sends an
+  A2S_INFO query to the Rust query port (web-admin → `rust-server` over the Docker network)
+  and returns `{ running, queryPort, answering, name?, map?, players?, maxPlayers?, error? }`.
+  Drives the dashboard's **Server Visibility** panel (status dot, parsed server info, polled
+  every 30s + a **Re-check** button). Caveat: it proves the *server* is answering, not that
+  the port is open to the public internet — `answering: true` while still absent from the
+  in-game browser points to an external firewall block (see [backend.md](backend.md) `a2s.ts`).
 - `POST /api/plugins/reload-all` — `oxide.reload *`.
 - `POST /api/plugins/redownload` — run `install-plugins.sh` then reload.
 - `POST /api/world/set-day | set-night` — `env.time`.

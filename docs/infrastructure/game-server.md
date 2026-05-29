@@ -48,7 +48,12 @@ The `rust-server` container's lifecycle is driven entirely by `entrypoint.sh`.
 
 `RUST_SERVER_IDENTITY` (default `docker`) names the save directory under
 `/rust/server/<identity>/`. The dashboard's **Wipe** action deletes `*.map`, `*.sav`,
-`*.sav.bak` there before restarting.
+`*.sav.bak` there. **Order is critical:** Rust rewrites the world `.sav` on SIGTERM, so
+the web admin **stops** the container first (letting Rust take its final save and exit),
+**then** deletes the saves from its own `rust-data` mount (`/rust-data/server/<identity>/`,
+the same volume the game container sees as `/rust`), **then starts** into a freshly
+generated map. Deleting while the server is running and merely restarting silently undoes
+the wipe — the shutdown-save recreates the files before the next boot.
 
 ## Config files (`/cfg`)
 

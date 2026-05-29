@@ -78,6 +78,17 @@ export function dashboardPage(data: DashboardData) {
       ${statsCard("Server FPS", serverInfo.fps || "N/A", { valueId: "tile-fps" })}
     </div>
 
+    <div class="mb-8">
+      ${section("Server Visibility", `
+        <div class="flex items-center gap-2.5">
+          <span id="qp-dot" class="relative flex h-2.5 w-2.5"><span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-zinc-300"></span></span>
+          <span id="qp-text" class="font-medium text-zinc-700">Checking query port…</span>
+          <button id="qp-recheck" class="ml-auto text-xs text-zinc-500 hover:text-zinc-900 underline cursor-pointer">Re-check</button>
+        </div>
+        <p id="qp-detail" class="mt-2 text-xs text-zinc-400"></p>
+      `, { description: "Steam server-browser / BattleMetrics discovery (A2S query port)" })}
+    </div>
+
     <div id="live-controls" class="grid grid-cols-1 lg:grid-cols-3 gap-4 ${status.running ? "" : "hidden"}">
       ${section("Plugin Controls", `
         <div class="flex flex-wrap gap-2">
@@ -332,8 +343,42 @@ export function dashboardPage(data: DashboardData) {
         refresh();
       });
 
+      // ── Server visibility: A2S query-port check ──
+      function setQp(dotCls, text, detail) {
+        const dot = el('qp-dot');
+        if (dot) dot.innerHTML = '<span class="relative inline-flex h-2.5 w-2.5 rounded-full ' + dotCls + '"></span>';
+        setText('qp-text', text);
+        const d = el('qp-detail'); if (d) d.innerHTML = detail || '';
+      }
+      async function checkQueryPort() {
+        setQp('bg-zinc-300', 'Checking query port…', '');
+        try {
+          const res = await fetch('/api/server/queryport', { headers: { Accept: 'application/json' } });
+          const d = await res.json();
+          if (d && d.error === 'unauthorized') { location.href = '/login'; return; }
+          if (!d.running) {
+            setQp('bg-zinc-300', 'Server not running', 'Start the server to check query-port visibility.');
+          } else if (d.answering) {
+            const who = [d.name ? esc(d.name) : null, d.map ? 'map ' + esc(d.map) : null,
+              (d.players != null) ? d.players + '/' + (d.maxPlayers ?? '?') + ' players' : null]
+              .filter(Boolean).join(' · ');
+            setQp('bg-emerald-500', 'Answering on query port ' + d.queryPort,
+              (who ? who + '<br>' : '') + 'Server is discoverable. If it still is not in the in-game browser, the query port is blocked by an <b>external firewall</b> (not the server).');
+          } else {
+            setQp('bg-red-400', 'Not answering on query port ' + d.queryPort,
+              'The server is not responding to A2S queries' + (d.error ? ' (' + esc(d.error) + ')' : '') + '. It just (re)started, or server.queryport is misconfigured.');
+          }
+        } catch (e) {
+          setQp('bg-amber-400', 'Check failed', esc(e.message || 'request error'));
+        }
+      }
+      const qpBtn = el('qp-recheck');
+      if (qpBtn) qpBtn.addEventListener('click', checkQueryPort);
+
       refresh(); // sync scheduler banner + tiles immediately on load
+      checkQueryPort();
       setInterval(refresh, POLL_MS);
+      setInterval(checkQueryPort, 30000); // A2S has a ~2.5s timeout; don't hammer it
       setInterval(() => { tickUptime(); tickAutoUpdate(); }, 1000);
     </script>
   `, { activePage: "dashboard" });
