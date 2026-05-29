@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
 import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer, checkForUpdate } from "./docker";
 import { RconClient } from "./rcon";
+import { startUpdateScheduler, getSchedulerStatus, cancelScheduledRestart } from "./update-scheduler";
 import * as webLog from "./logger";
 import { loginPage } from "./views/login";
 import { dashboardPage } from "./views/dashboard";
@@ -64,7 +65,7 @@ async function getDashboardState() {
     } catch {}
   }
 
-  return { status, stats, serverInfo };
+  return { status, stats, serverInfo, scheduler: getSchedulerStatus() };
 }
 
 // Fire a long-running container op without blocking the HTTP response; failures land
@@ -148,6 +149,14 @@ const app = new Elysia()
       webLog.error("server", `Update check failed: ${e.message}`);
       return { error: e.message || "update check failed" };
     }
+  })
+
+  // API: cancel a pending auto-update restart
+  .post("/api/server/update/cancel", ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
+    const cancelled = cancelScheduledRestart("admin");
+    return { ok: true, cancelled };
   })
 
   // RCON page
@@ -612,6 +621,7 @@ const app = new Elysia()
   .post("/api/server/restart", ({ headers }) => {
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
+    cancelScheduledRestart("manual-action");
     webLog.info("server", "Server restart requested");
     runServerAction("Restart", restartServer);
     return { ok: true };
@@ -620,6 +630,7 @@ const app = new Elysia()
   .post("/api/server/stop", ({ headers }) => {
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
+    cancelScheduledRestart("manual-action");
     webLog.warn("server", "Server stop requested");
     runServerAction("Stop", stopServer);
     return { ok: true };
@@ -628,6 +639,7 @@ const app = new Elysia()
   .post("/api/server/start", ({ headers }) => {
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
+    cancelScheduledRestart("manual-action");
     webLog.info("server", "Server start requested");
     runServerAction("Start", startServer);
     return { ok: true };
@@ -636,6 +648,7 @@ const app = new Elysia()
   .post("/api/server/wipe", ({ headers }) => {
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
+    cancelScheduledRestart("manual-action");
     webLog.warn("server", "Server wipe requested");
     runServerAction("Wipe", async () => {
       // Read server identity from settings (fallback to env/default)
@@ -810,6 +823,8 @@ const app = new Elysia()
   })
 
   .listen({ hostname: "0.0.0.0", port: PORT });
+
+startUpdateScheduler(rcon);
 
 webLog.info("system", `RustGG admin dashboard started on port ${PORT}`);
 console.log(`RustGG admin dashboard running at http://localhost:${PORT}`);

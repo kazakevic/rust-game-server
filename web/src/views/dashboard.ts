@@ -1,15 +1,28 @@
 import { layout } from "./layout";
 import { statsCard, statusDot, button, pageHeader, section } from "./components";
 
+interface SchedulerState {
+  enabled: boolean;
+  intervalMin: number;
+  delayMin: number;
+  restartScheduled: boolean;
+  restartAt: number | null;
+  pendingBuild: string | null;
+}
+
 interface DashboardData {
   status: { running: boolean; status: string; startedAt: string };
   stats: { cpu: string; memoryUsed: string; memoryLimit: string; memoryPercent: string };
   serverInfo: { hostname: string; players: string; maxPlayers: string; map: string; fps: string };
+  scheduler: SchedulerState;
 }
 
 export function dashboardPage(data: DashboardData) {
-  const { status, stats, serverInfo } = data;
+  const { status, stats, serverInfo, scheduler } = data;
   const uptime = status.running && status.startedAt ? timeSince(status.startedAt) : "N/A";
+  const autoUpdateText = scheduler.enabled
+    ? `Auto-update: on · checks every ${scheduler.intervalMin}m · ${scheduler.delayMin}m player warning before restart`
+    : "Auto-update: off";
 
   // Both control groups are rendered; the visible one is toggled client-side from live status.
   const runningControls = `<div id="controls-running" class="flex items-center gap-2 ${status.running ? "" : "hidden"}">
@@ -44,6 +57,11 @@ export function dashboardPage(data: DashboardData) {
       <span id="update-result-action" class="ml-auto shrink-0">
         ${button("Update & restart", { variant: "warning", size: "sm", attrs: `id="do-update-btn" data-action="restart"`, class: "hidden" })}
       </span>
+    </div>
+    <div id="autoupdate-banner" class="hidden mb-4 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <svg class="animate-spin h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      <span id="autoupdate-text"></span>
+      ${button("Cancel", { variant: "outline", size: "sm", attrs: `id="cancel-update-btn"`, class: "ml-auto shrink-0" })}
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -101,6 +119,8 @@ export function dashboardPage(data: DashboardData) {
       `, { description: "Control weather effects" })}
     </div>
 
+    <p id="autoupdate-status" class="mt-6 text-xs text-zinc-400">${autoUpdateText}</p>
+
     <script>
       // ── Live dashboard: poll status, update tiles in place, drive control buttons ──
       const PENDING = {
@@ -115,6 +135,7 @@ export function dashboardPage(data: DashboardData) {
       let pending = null;          // { type, prevStartedAt, deadline }
       let lastRunning = ${status.running};
       let lastStartedAt = ${JSON.stringify(status.startedAt || "")};
+      let autoRestartAt = null, autoBuild = null;
 
       function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
       function el(id) { return document.getElementById(id); }
@@ -186,6 +207,33 @@ export function dashboardPage(data: DashboardData) {
         }
         applyPending();
         updateGroups();
+        renderScheduler(s.scheduler);
+      }
+
+      function mmss(sec) {
+        const m = Math.floor(sec / 60), x = sec % 60;
+        return m + ':' + (x < 10 ? '0' : '') + x;
+      }
+
+      function tickAutoUpdate() {
+        if (!autoRestartAt) return;
+        const remain = Math.max(0, Math.round((autoRestartAt - Date.now()) / 1000));
+        setText('autoupdate-text', 'Server update (build ' + (autoBuild || '?') + ') detected — auto-restart in ' + mmss(remain) + '. Players are being warned in-game.');
+      }
+
+      function renderScheduler(sch) {
+        sch = sch || {};
+        setText('autoupdate-status', sch.enabled
+          ? 'Auto-update: on · checks every ' + sch.intervalMin + 'm · ' + sch.delayMin + 'm player warning before restart'
+          : 'Auto-update: off');
+        if (sch.restartScheduled && sch.restartAt) {
+          autoRestartAt = sch.restartAt; autoBuild = sch.pendingBuild;
+          el('autoupdate-banner').classList.remove('hidden');
+          tickAutoUpdate();
+        } else {
+          autoRestartAt = null; autoBuild = null;
+          el('autoupdate-banner').classList.add('hidden');
+        }
       }
 
       function showError(msg) {
@@ -271,8 +319,22 @@ export function dashboardPage(data: DashboardData) {
 
       if (checkBtn) checkBtn.addEventListener('click', checkUpdates);
 
+      // ── Cancel a scheduled auto-update restart ──
+      const cancelUpdateBtn = el('cancel-update-btn');
+      if (cancelUpdateBtn) cancelUpdateBtn.addEventListener('click', async () => {
+        cancelUpdateBtn.disabled = true;
+        try {
+          const res = await fetch('/api/server/update/cancel', { method: 'POST' });
+          const d = await res.json().catch(() => ({}));
+          if (d && d.error === 'unauthorized') { location.href = '/login'; return; }
+        } catch (e) { /* ignore */ }
+        finally { cancelUpdateBtn.disabled = false; }
+        refresh();
+      });
+
+      refresh(); // sync scheduler banner + tiles immediately on load
       setInterval(refresh, POLL_MS);
-      setInterval(tickUptime, 1000);
+      setInterval(() => { tickUptime(); tickAutoUpdate(); }, 1000);
     </script>
   `, { activePage: "dashboard" });
 }

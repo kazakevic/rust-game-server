@@ -18,6 +18,7 @@ web/src/
 ├── auth.ts         # credential check + in-memory sessions
 ├── docker.ts       # dockerode wrapper (status/stats/logs/exec/control)
 ├── rcon.ts         # WebSocket RCON client
+├── update-scheduler.ts # opt-in periodic update checker (warn players + restart)
 ├── npc-db.ts       # bun:sqlite NPC command queue
 ├── logger.ts       # in-memory ring-buffer web log
 └── views/          # one module per page + shared layout/components

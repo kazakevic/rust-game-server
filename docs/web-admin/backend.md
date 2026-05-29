@@ -47,6 +47,20 @@ Connects to `/var/run/docker.sock` and targets `RUST_CONTAINER_NAME`.
   compare; requires the container running). Powers the dashboard's Check-for-updates button.
 - `getServerLogs(tail, since?)` — fetch container logs (same de-framing).
 
+## `update-scheduler.ts` — periodic update checker
+
+Opt-in background loop (enabled with `RUST_UPDATE_CHECK_ENABLED=1`), started from
+`index.ts` after `listen`. Every `RUST_UPDATE_CHECK_INTERVAL` minutes it calls
+`checkForUpdate()`; when a new build is found it broadcasts RCON `say` warnings on a
+countdown (`RUST_UPDATE_RESTART_DELAY` minutes, checkpoints at 5m/3m/1m/30s/10s) then
+`restartServer()` — the entrypoint downloads the build on boot.
+- `startUpdateScheduler(rcon)` — begin the loop (no-op when disabled).
+- `getSchedulerStatus()` — `{ enabled, intervalMin, delayMin, restartScheduled, restartAt,
+  pendingBuild }`, surfaced via `/api/server/status` for the dashboard banner/countdown.
+- `cancelScheduledRestart(reason)` — clear a pending restart; "snoozes" that build so it
+  won't auto-reschedule until a newer one appears. Called by the Cancel button and by every
+  manual lifecycle action.
+
 ## `rcon.ts` — `RconClient`
 
 WebSocket client for RustDedicated web RCON (`ws://host:port/password`).

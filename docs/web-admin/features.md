@@ -19,6 +19,12 @@ and updates tiles + swaps the Start↔Stop controls in place (uptime ticks every
   updateAvailable }` (or `{ error }` if the server isn't running). When an update exists the
   dashboard shows an **Update & restart** button, which just triggers `restart` — the
   intelligent entrypoint downloads the new build on boot.
+- `POST /api/server/update/cancel` — cancel a pending **auto-update** restart (see below).
+- **Auto-update checker** (opt-in, `RUST_UPDATE_CHECK_ENABLED=1`): a background loop in the
+  web admin (`update-scheduler.ts`) periodically runs the same build-id check; on a new
+  build it warns players in-game over RCON on a countdown (`RUST_UPDATE_RESTART_DELAY`
+  minutes) then restarts. The dashboard shows a live countdown banner with a **Cancel**
+  button; any manual lifecycle action also cancels a pending auto-restart.
 - `POST /api/server/restart | stop | start` — container lifecycle. **Non-blocking:** each
   returns `{ ok: true }` immediately and runs the Docker op in the background. The button
   enters a "Stopping…/Restarting…" pending state with a progress banner; the poll detects
