@@ -6,6 +6,22 @@ STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
 
 cd "${RUST_SERVER_DIR}"
 
+# Seed /cfg from image defaults on first boot. /cfg is a named volume (rust-cfg) so it
+# persists across Dokploy redeploys; a fresh volume starts empty, so copy any baked-in
+# defaults (e.g. users.cfg) that are missing. copy-if-not-exists — never clobber
+# web-admin-written settings (server-settings.json/server.cfg) or live admin edits.
+if [ -d /seed-cfg ]; then
+    mkdir -p /cfg
+    for _seed in /seed-cfg/*; do
+        [ -e "$_seed" ] || continue
+        _dest="/cfg/$(basename "$_seed")"
+        if [ ! -e "$_dest" ]; then
+            echo "==> Seeding default $(basename "$_seed") into /cfg..."
+            cp "$_seed" "$_dest"
+        fi
+    done
+fi
+
 # Load settings from web admin JSON (env vars are fallbacks)
 SETTINGS_FILE="/cfg/server-settings.json"
 if [ -f "${SETTINGS_FILE}" ]; then

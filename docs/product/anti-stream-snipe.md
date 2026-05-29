@@ -75,7 +75,7 @@ We combine these and add the server-side pieces nobody packages today.
 | **P0** | **Hidden + whitelisted foundation** | Block the Steam queryport, use non-standard server/rcon ports, Oxide whitelist → absent from BattleMetrics/RUSTalyzer, joinable only by verified creators. Facepunch documents this exact setup. |
 | **P0** | **Server-side per-session name salting** | Non-deterministic display names so SteamID→alias reversers fail. **No plugin does this today** → a custom Oxide plugin (modular-plugin pattern). The headline differentiator, impossible client-side. |
 | **P0** | **`connecthidden` onboarding + reserved queue slot** | Join off-stream without exposing the IP (`client.connecthidden`); guaranteed entry via native `global.skipqueueid` / [Priority Queue](https://codefling.com/plugins/priority-queue) / [Ultimate Queue](https://umod.org/plugins/ultimate-queue). |
-| **P0** | **Self-serve creator verification → auto-whitelist** | Link Twitch/YouTube → grant whitelist by SteamID, via the Bun/Elysia web admin. The core go-to-market mechanism. |
+
 | **P1** | **Server-side information obfuscation** | Delayed/anonymized killfeeds, hidden/delayed heli/cargo/raid alerts, suppressed join/leave, hidden live player count — the stream-delay benefit without the engagement cost. |
 | **P1** | **Moderation dashboard + community ban DB** | Cross-server ban database (Server Armour-style) + account-age gating on top of EAC + incident log + spectate hooks, in the web admin. Fast/fair moderation is the top trust signal. |
 | **P1** | **Auto IP-rotation / leak-response runbook** | Facepunch concedes IP leakage is "extremely likely"; detect a leak and switch IPs fast (keep spare IPs). Feasible on the Docker/Dokploy + entrypoint stack. |

@@ -27,7 +27,7 @@ then drill into the relevant area.
 ## Infrastructure
 
 - **[Docker & Compose](infrastructure/docker.md)** — Services, Dockerfiles, ports,
-  shared `rust-data` volume and `./cfg`, dev override.
+  shared `rust-data` + `rust-cfg` named volumes, dev override.
 - **[Deployment, CI/CD, Makefile & Configuration](infrastructure/deployment.md)** —
   `.env` config, all `make` commands, the CI/CD pipeline (GitHub → Dokploy on a VPS
   building from `compose.yaml`), first-boot flow, security.

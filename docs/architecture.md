@@ -23,8 +23,8 @@ Docker Compose services that share state through a Docker volume and the Docker 
             └──────┬───────┘
        ┌───────────┼─────────────┬──────────────────┐
        │           │             │                  │
-   Docker socket   RCON ws    shared volume     shared cfg dir
-   (start/stop/    (game       rust-data/        ./cfg
+   Docker socket   RCON ws    shared volume     shared cfg volume
+   (start/stop/    (game       rust-data/        rust-cfg
     logs/stats/    commands)   oxide/...         (server.cfg,
     exec)          :28016      (SQLite,          server-settings.json)
        │                       StackSize cfg)
@@ -45,9 +45,10 @@ Four integration channels:
 3. **Shared `rust-data` volume** — both services mount the Rust install. The web app
    reads/writes Oxide config (`StackSizeController.json`) and the NPC SQLite database
    directly on disk.
-4. **Shared `./cfg` directory** — the web app writes `server-settings.json` and
-   `server.cfg`; the game server's [entrypoint](infrastructure/game-server.md) reads
-   them on boot.
+4. **Shared `rust-cfg` volume** (`/cfg`) — the web app writes `server-settings.json` and
+   `server.cfg`; the game server's [entrypoint](infrastructure/game-server.md) reads them
+   on boot. A named volume (not a repo bind mount) so settings survive Dokploy redeploys;
+   seeded from image defaults on first boot.
 
 ## The NPC control loop (RCON-less IPC)
 

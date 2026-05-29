@@ -23,7 +23,10 @@ services:
     volumes:
       - rust-data:/rust
       - ./plugins:/plugins:ro
-      - ./cfg:/cfg:ro
+      # /cfg is a named volume (not the repo dir) so web-admin settings survive Dokploy
+      # redeploys. Writable here so the entrypoint can seed defaults from /seed-cfg on
+      # first boot; RustDedicated itself writes config under /rust, not /cfg.
+      - rust-cfg:/cfg
     stdin_open: true
     tty: true
 
@@ -38,10 +41,11 @@ services:
       - RUST_CONTAINER_NAME=rust-server
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./cfg:/cfg
+      - rust-cfg:/cfg
       - rust-data:/rust-data
     depends_on:
       - rust-server
 
 volumes:
   rust-data:
+  rust-cfg:

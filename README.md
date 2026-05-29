@@ -30,7 +30,7 @@ rust-gg/
 │   ├── NpcAdmin.cs        # Web-driven NPC manager
 │   └── umod-plugins.txt   # External uMod plugins to auto-install
 ├── web/               # Admin dashboard (Bun + TypeScript)
-├── cfg/               # Server config files
+├── cfg/               # Seed config (baked to image; runtime /cfg is the rust-cfg volume)
 ├── scripts/           # uMod/plugin install scripts
 ├── Dockerfile         # Rust server image
 ├── compose.yaml       # Docker Compose (rust-server + web-admin)
@@ -58,7 +58,7 @@ ADMIN_PASS=your_admin_password
 
 ```bash
 make build
-make up
+make start
 ```
 
 The Rust server will download via SteamCMD on first boot (this takes a few minutes). uMod and plugins install automatically.
@@ -103,8 +103,8 @@ ADMIN_PASS=changeme             # Change this
 
 | Command | Description |
 |---|---|
-| `make up` | Start all services |
-| `make down` | Stop all services |
+| `make start` | Start all services |
+| `make stop` | Stop all services |
 | `make restart` | Restart all services |
 | `make build` | Rebuild Docker images |
 | `make clean` | Stop and remove volumes |

@@ -8,6 +8,10 @@ The `rust-server` container's lifecycle is driven entirely by `entrypoint.sh`.
 
 ## Boot sequence (`entrypoint.sh`)
 
+0. **Seed `/cfg` from image defaults** — `/cfg` is the `rust-cfg` named volume (persists
+   across Dokploy redeploys) and starts empty on first boot. Copy any baked-in defaults
+   from `/seed-cfg` (e.g. `users.cfg`) that are missing — copy-if-not-exists, so
+   web-admin-written settings and live admin edits are never clobbered.
 1. **Load settings from `/cfg/server-settings.json`** (written by the web dashboard).
    Each present key overrides the matching env var via `jq` — `serverName`, `mapSeed`,
    `worldSize`, `maxPlayers`, ports, `updateOnStart`, `umodEnabled`, `gslt`, etc.
@@ -46,11 +50,15 @@ The `rust-server` container's lifecycle is driven entirely by `entrypoint.sh`.
 `/rust/server/<identity>/`. The dashboard's **Wipe** action deletes `*.map`, `*.sav`,
 `*.sav.bak` there before restarting.
 
-## Config files (`cfg/`)
+## Config files (`/cfg`)
 
-Bind-mounted read-only into the game server at `/cfg` and read-write into the web app.
+Live on the `rust-cfg` named volume, mounted read-write into both the game server and the
+web app. The repo's `cfg/` is baked into the image at `/seed-cfg` and seeded into the
+volume on first boot (step 0) — runtime files persist across deploys, they are **not** in
+the git checkout.
 
 - `users.cfg` — owner/admin/moderator grants (e.g. `ownerid <steamid> "<name>" "owner"`).
+  Shipped as a seed default; editable afterward via the dashboard's Config Browser.
 - `server.cfg` — generated/edited gameplay config. The dashboard's Server Settings page
   rewrites a managed block here (pve, gamemode, tickrate, saveinterval, branding,
   idlekick, etc.) on save.

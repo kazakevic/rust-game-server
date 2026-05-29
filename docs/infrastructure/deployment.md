@@ -16,20 +16,21 @@ services load it via `env_file`. Key groups:
 - **Web dashboard** — `WEB_PORT`, `ADMIN_USER`, `ADMIN_PASS`.
 
 > The web dashboard's Server Settings page can override most of these by writing
-> `cfg/server-settings.json`, which the entrypoint reads ahead of env defaults. See
-> [game-server.md](game-server.md).
+> `server-settings.json` to the `rust-cfg` volume (`/cfg`), which the entrypoint reads
+> ahead of env defaults. These settings persist across deploys; `.env` only supplies the
+> first-boot defaults. See [game-server.md](game-server.md).
 
 ## Make commands
 
 | Command | Description |
 |---|---|
 | `make build` | Build both Docker images |
-| `make up` / `make down` | Start / stop all services |
+| `make start` / `make stop` | Start / stop all services |
 | `make restart` | Restart all services |
 | `make clean` | Stop and remove volumes (destroys server data) |
 | `make logs` | Tail Rust server logs |
 | `make shell` / `make rcon` | Bash into the `rust-server` container |
-| `make update` | Down, then up with `RUST_UPDATE_ON_START=1` (SteamCMD update) |
+| `make update` | Stop, then start with `RUST_UPDATE_ON_START=1` (SteamCMD update) |
 | `make plugins` / `make reload` | Run `install-plugins.sh` in the container |
 | `make update-umod` | Run `update-umod.sh` in the running container |
 | `make web-logs` | Tail web dashboard logs |
@@ -59,8 +60,17 @@ git push  →  GitHub (kazakevic/rust-game-server)  →  Dokploy on the VPS
    `compose.yaml`. On a new commit it pulls, then builds and (re)deploys.
 3. Both services are built from source on the VPS via their `build:` contexts
    (`.` and `./web`) — there is no image registry in the loop.
-4. Changed services are recreated; the named `rust-data` volume and `./cfg` persist
-   across deploys, so server identity, map, plugins, and saved settings survive.
+4. Changed services are recreated; the **named volumes** `rust-data` (install/save data)
+   and `rust-cfg` (web-admin settings, `users.cfg`, `server.cfg`) persist across deploys,
+   so server identity, map, plugins, and saved settings survive. `./plugins` ships from
+   git (read-only bind mount) and is meant to update on deploy.
+
+> **Persistence rule:** anything the web admin *writes at runtime* must live on a named
+> volume, never on a repo-relative bind mount. Dokploy refreshes the git checkout on each
+> deploy, so a `./cfg`-style bind mount would lose untracked files like
+> `server-settings.json` (this is why GSLT and other settings used to reset every deploy).
+> `/cfg` is therefore a named volume (`rust-cfg`), seeded once from image defaults
+> (`/seed-cfg`) on first boot.
 
 > The Rust game server pins `platform: linux/amd64` (SteamCMD/RustDedicated is x86-64
 > only) and runs with `seccomp:unconfined` — both must be preserved for the build to
@@ -73,7 +83,8 @@ land there (not only in the Makefile, which is local-only):
 
 - Plain Compose, named volumes, `.env`-driven config.
 - No host-specific paths beyond the Docker socket mount (`/var/run/docker.sock`) and
-  the repo-relative bind mounts (`./plugins`, `./cfg`).
+  the read-only `./plugins` bind mount (source-controlled, refreshed on deploy).
+  Runtime-written config lives on the `rust-cfg` named volume, not a bind mount.
 - Set production secrets/config via Dokploy's environment (it provides the `.env` the
   services load) — never commit `.env`.
 - Avoid changes that only work through the local `make` flow or `compose.dev.yaml`
@@ -81,7 +92,7 @@ land there (not only in the Makefile, which is local-only):
 
 ## First boot
 
-On first `make up`, `rust-server` downloads RustDedicated via SteamCMD (several
+On first `make start`, `rust-server` downloads RustDedicated via SteamCMD (several
 minutes), then installs uMod and any plugins listed in `plugins/umod-plugins.txt`.
 The dashboard is then reachable at `http://localhost:${WEB_PORT}` (default 3000);
 log in with `ADMIN_USER` / `ADMIN_PASS`.
