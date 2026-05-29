@@ -97,6 +97,23 @@ export async function execInServer(cmd: string[]): Promise<string> {
   });
 }
 
+export interface UpdateInfo {
+  installed: string;
+  latest: string;
+  branch: string;
+  updateAvailable: boolean;
+}
+
+// Compare the installed Rust build id against the latest published one (see
+// scripts/update-check.sh, run inside the game-server container). Requires the container
+// to be running, since it execs SteamCMD's app_info_print there.
+export async function checkForUpdate(): Promise<UpdateInfo> {
+  const out = await execInServer(["bash", "/scripts/update-check.sh"]);
+  const match = out.match(/\{[^{}]*\}/);
+  if (!match) throw new Error("could not read update info from server");
+  return JSON.parse(match[0]) as UpdateInfo;
+}
+
 export async function getServerLogs(tail: number = 200, since?: number): Promise<string> {
   try {
     const container = await getContainer();

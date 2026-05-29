@@ -13,6 +13,7 @@ export function dashboardPage(data: DashboardData) {
 
   // Both control groups are rendered; the visible one is toggled client-side from live status.
   const runningControls = `<div id="controls-running" class="flex items-center gap-2 ${status.running ? "" : "hidden"}">
+      ${button("Check for updates", { variant: "outline", size: "sm", attrs: `id="check-updates-btn"` })}
       ${button("Restart", { variant: "warning", size: "sm", attrs: `data-action="restart" data-confirm="Restart the server?"` })}
       ${button("Wipe", { variant: "destructive", size: "sm", attrs: `data-action="wipe" data-confirm="⚠️ This deletes all map and save data, then restarts. Are you sure?"` })}
       ${button("Stop", { variant: "destructive", size: "sm", attrs: `data-action="stop" data-confirm="Stop the server?"` })}
@@ -37,6 +38,12 @@ export function dashboardPage(data: DashboardData) {
     <div id="action-error" class="hidden mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
       <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-width="2" d="M12 8v4m0 4h.01"/></svg>
       <span id="action-error-text"></span>
+    </div>
+    <div id="update-result" class="hidden mb-4 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
+      <span id="update-result-text"></span>
+      <span id="update-result-action" class="ml-auto shrink-0">
+        ${button("Update & restart", { variant: "warning", size: "sm", attrs: `id="do-update-btn" data-action="restart"`, class: "hidden" })}
+      </span>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -202,6 +209,7 @@ export function dashboardPage(data: DashboardData) {
         const action = btn.dataset.action;
         const confirmMsg = btn.dataset.confirm;
         if (confirmMsg && !confirm(confirmMsg)) return;
+        el('update-result').classList.add('hidden');
         pending = { type: action, prevStartedAt: lastStartedAt, deadline: Date.now() + PENDING_TIMEOUT_MS };
         applyPending();
         updateGroups();
@@ -220,6 +228,48 @@ export function dashboardPage(data: DashboardData) {
         const btn = e.target.closest('[data-action]');
         if (btn) { e.preventDefault(); doAction(btn); }
       });
+
+      // ── Check for updates (build-id compare via SteamCMD) ──
+      const checkBtn = el('check-updates-btn');
+      const updateBox = el('update-result');
+      const updateText = el('update-result-text');
+      const doUpdateBtn = el('do-update-btn');
+      const UPDATE_BASE = 'mb-4 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm';
+
+      function showUpdateResult(d) {
+        doUpdateBtn.classList.add('hidden');
+        let colors;
+        if (d.error) {
+          colors = 'border-red-200 bg-red-50 text-red-800';
+          updateText.textContent = d.error;
+        } else if (d.updateAvailable) {
+          colors = 'border-amber-200 bg-amber-50 text-amber-800';
+          updateText.textContent = 'Update available: build ' + (d.installed || 'none') + ' → ' + d.latest + ' (branch ' + d.branch + ').';
+          doUpdateBtn.dataset.confirm = 'Update to build ' + d.latest + '? The server will restart and download the update on boot.';
+          doUpdateBtn.classList.remove('hidden');
+        } else {
+          colors = 'border-emerald-200 bg-emerald-50 text-emerald-800';
+          updateText.textContent = 'Up to date — build ' + (d.installed || d.latest || 'unknown') + ' (branch ' + d.branch + ').';
+        }
+        updateBox.className = UPDATE_BASE + ' ' + colors;
+      }
+
+      async function checkUpdates() {
+        const orig = checkBtn.textContent;
+        checkBtn.disabled = true; checkBtn.textContent = 'Checking…';
+        try {
+          const res = await fetch('/api/server/update/check');
+          const data = await res.json();
+          if (data && data.error === 'unauthorized') { location.href = '/login'; return; }
+          showUpdateResult(data || { error: 'No response from server' });
+        } catch (e) {
+          showUpdateResult({ error: 'Check failed: ' + e.message });
+        } finally {
+          checkBtn.disabled = false; checkBtn.textContent = orig;
+        }
+      }
+
+      if (checkBtn) checkBtn.addEventListener('click', checkUpdates);
 
       setInterval(refresh, POLL_MS);
       setInterval(tickUptime, 1000);

@@ -42,6 +42,9 @@ Connects to `/var/run/docker.sock` and targets `RUST_CONTAINER_NAME`.
   finishes saving before SIGKILL (mirrors `stop_grace_period` in `compose.yaml`).
 - `execInServer(cmd[])` — run a command in the container; manually de-frames Docker's
   8-byte multiplexed stream headers to return clean stdout.
+- `checkForUpdate()` — execs `scripts/update-check.sh` in the game-server container and
+  parses its JSON to return `{ installed, latest, branch, updateAvailable }` (build-id
+  compare; requires the container running). Powers the dashboard's Check-for-updates button.
 - `getServerLogs(tail, since?)` — fetch container logs (same de-framing).
 
 ## `rcon.ts` — `RconClient`

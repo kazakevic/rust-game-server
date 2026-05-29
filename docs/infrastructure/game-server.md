@@ -27,7 +27,9 @@ The `rust-server` container's lifecycle is driven entirely by `entrypoint.sh`.
    it clears the stale manifest + staging and forces a clean validate. Failures fall back to
    booting an existing install; it aborts with a directory listing only if no binary exists.
    Knobs: `RUST_UPDATE_ON_START`, `RUST_BRANCH`, `RUST_VALIDATE`, `RUST_UPDATE_MAX_ATTEMPTS`,
-   `RUST_STOP_TIMEOUT`.
+   `RUST_STOP_TIMEOUT`. The same build-id comparison is exposed as `scripts/update-check.sh`
+   (prints `{installed,latest,branch,updateAvailable}` JSON) so the web dashboard's
+   **Check for updates** button can report status without restarting — keep the two in sync.
 3. **uMod/Oxide install** — if `UMOD_ENABLED=1`, run `install-umod.sh` then
    `install-plugins.sh` (see [umod-oxide.md](../plugins/umod-oxide.md)).
 4. **Copy `.cfg` files** — copy `/cfg/*.cfg` into

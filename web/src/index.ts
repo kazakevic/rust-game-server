@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
-import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer } from "./docker";
+import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer, checkForUpdate } from "./docker";
 import { RconClient } from "./rcon";
 import * as webLog from "./logger";
 import { loginPage } from "./views/login";
@@ -132,6 +132,22 @@ const app = new Elysia()
     const unauth = apiUnauthorized(headers);
     if (unauth) return unauth;
     return await getDashboardState();
+  })
+
+  // API: check whether a newer Rust build is available (buildid compare via SteamCMD)
+  .get("/api/server/update/check", async ({ headers }) => {
+    const unauth = apiUnauthorized(headers);
+    if (unauth) return unauth;
+    const status = await getServerStatus();
+    if (!status.running) return { error: "Server must be running to check for updates." };
+    try {
+      const info = await checkForUpdate();
+      webLog.info("server", `Update check: installed=${info.installed || "?"} latest=${info.latest || "?"} updateAvailable=${info.updateAvailable}`);
+      return info;
+    } catch (e: any) {
+      webLog.error("server", `Update check failed: ${e.message}`);
+      return { error: e.message || "update check failed" };
+    }
   })
 
   // RCON page

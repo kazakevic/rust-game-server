@@ -13,6 +13,12 @@ Status/stats tiles (running state, uptime, CPU, memory) plus live `serverinfo` v
 controls. **Live, no full-page reload:** the page polls `GET /api/server/status` every 5s
 and updates tiles + swaps the Start↔Stop controls in place (uptime ticks every 1s).
 - `GET /api/server/status` — JSON `{ status, stats, serverInfo }` for the live poll.
+- `GET /api/server/update/check` — **Check for updates** button: execs
+  `scripts/update-check.sh` in the game-server container to compare the installed Rust
+  build id against the latest published one, returning `{ installed, latest, branch,
+  updateAvailable }` (or `{ error }` if the server isn't running). When an update exists the
+  dashboard shows an **Update & restart** button, which just triggers `restart` — the
+  intelligent entrypoint downloads the new build on boot.
 - `POST /api/server/restart | stop | start` — container lifecycle. **Non-blocking:** each
   returns `{ ok: true }` immediately and runs the Docker op in the background. The button
   enters a "Stopping…/Restarting…" pending state with a progress banner; the poll detects
