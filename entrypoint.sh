@@ -36,6 +36,7 @@ if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
     echo "==> Updating Rust Dedicated Server (AppID 258550)..."
     _attempt=1
     _max_attempts="${RUST_UPDATE_MAX_ATTEMPTS:-5}"
+    _cleaned=0
     until ${STEAMCMD} \
         +@sSteamCmdForcePlatformType linux \
         +force_install_dir "${RUST_SERVER_DIR}" \
@@ -46,6 +47,16 @@ if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
             echo "==> SteamCMD update failed after ${_max_attempts} attempts."
             echo "==> Likely causes: low disk space (check 'df -h') or a Steam depot outage."
             break
+        fi
+        # A persistent "state is 0x6" (reconfiguring -> unknown, no download) means a stale
+        # or half-applied install manifest SteamCMD can't reconcile. After the first retry,
+        # clear the manifest + staging so the next pass does a clean validate/repair. Game
+        # saves live in server/<identity> and are NOT touched.
+        if [ "${_attempt}" -ge 2 ] && [ "${_cleaned}" -eq 0 ]; then
+            echo "==> Clearing stale Steam app manifest + staging for a clean re-validate..."
+            rm -f "${RUST_SERVER_DIR}/steamapps/appmanifest_258550.acf"
+            rm -rf "${RUST_SERVER_DIR}/steamapps/downloading" "${RUST_SERVER_DIR}/steamapps/temp"
+            _cleaned=1
         fi
         echo "==> SteamCMD update failed (attempt ${_attempt}/${_max_attempts}); retrying in 15s..."
         df -h "${RUST_SERVER_DIR}" 2>/dev/null || true
