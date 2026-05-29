@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { validateCredentials, generateSession, validateSession, destroySession } from "./auth";
+import { validateCredentials, generateSession, validateSession, destroySession, validateApiToken } from "./auth";
 import { getServerStatus, getServerStats, getServerLogs, restartServer, stopServer, startServer, execInServer, checkForUpdate } from "./docker";
 import { RconClient } from "./rcon";
 import { startUpdateScheduler, getSchedulerStatus, cancelScheduledRestart } from "./update-scheduler";
@@ -46,6 +46,27 @@ function authGuard(headers: Record<string, string | undefined>): Response | null
 function apiUnauthorized(headers: Record<string, string | undefined>): { error: string } | null {
   const token = getCookie(headers, "session");
   return validateSession(token) ? null : { error: "unauthorized" };
+}
+
+// Pull a bearer token from a request, for programmatic (browser-less) callers.
+// Accepts `Authorization: Bearer <token>`, `X-API-Token: <token>`, or `?token=`.
+function getApiToken(
+  headers: Record<string, string | undefined>,
+  query: Record<string, string | undefined>
+): string | undefined {
+  const auth = headers.authorization || headers.Authorization;
+  if (auth && auth.startsWith("Bearer ")) return auth.slice(7).trim();
+  return headers["x-api-token"] || query.token || undefined;
+}
+
+// Authorize an API request via EITHER a browser session cookie OR the static API token.
+// Lets the same endpoint serve the dashboard's fetch() calls and a CLI `curl`.
+function sessionOrTokenAuth(
+  headers: Record<string, string | undefined>,
+  query: Record<string, string | undefined>
+): boolean {
+  if (validateSession(getCookie(headers, "session"))) return true;
+  return validateApiToken(getApiToken(headers, query));
 }
 
 // Container status + stats + live serverinfo, shared by the dashboard page and its poll endpoint.
@@ -231,13 +252,31 @@ const app = new Elysia()
     return new Response(logsPage(logs), { headers: { "Content-Type": "text/html" } });
   })
 
-  // API: Server Logs
-  .get("/api/server-logs", async ({ headers, query }) => {
-    const blocked = authGuard(headers);
-    if (blocked) return { error: "unauthorized" };
+  // API: Server Logs (JSON). Session cookie OR API token, so the dashboard's poll and a
+  // CLI `curl` both work. `?tail=` (max 5000), `?since=` (unix seconds) for incremental pulls.
+  .get("/api/server-logs", async ({ headers, query, set }) => {
+    if (!sessionOrTokenAuth(headers, query)) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
     const tail = Math.min(parseInt(query.tail || "200") || 200, 5000);
-    const logs = await getServerLogs(tail);
+    const since = query.since ? parseInt(query.since) || undefined : undefined;
+    const logs = await getServerLogs(tail, since);
     return { logs };
+  })
+
+  // API: Server Logs (raw text/plain) — pipe-friendly for tools like Claude Code:
+  //   curl -fsS -H "Authorization: Bearer $TOKEN" https://host/api/server-logs.txt?tail=1000 | claude -p "diagnose this"
+  .get("/api/server-logs.txt", async ({ headers, query, set }) => {
+    if (!sessionOrTokenAuth(headers, query)) {
+      set.status = 401;
+      return "unauthorized\n";
+    }
+    const tail = Math.min(parseInt(query.tail || "500") || 500, 5000);
+    const since = query.since ? parseInt(query.since) || undefined : undefined;
+    const logs = await getServerLogs(tail, since);
+    set.headers["Content-Type"] = "text/plain; charset=utf-8";
+    return logs;
   })
 
   // Web Logs page

@@ -55,3 +55,5 @@ then drill into the relevant area.
   `components.ts`, the page modules, and UI conventions.
 - **[Features & Routes](web-admin/features.md)** — Every page and `/api/*` endpoint:
   dashboard, RCON, players, NPCs, stack sizes, settings, config files, plugins, logs.
+- **[Server Logs API](web-admin/server-logs-api.md)** — Token-authed, pipe-friendly
+  `/api/server-logs.txt` for pulling prod logs into CLI tools like Claude Code.

@@ -87,6 +87,18 @@ Edit the external plugin list and trigger (re)installs. See
 - `POST /api/plugins/umod/reinstall` — run `install-plugins.sh` then `oxide.reload *`.
 
 ## Logs
-- `GET /server-logs` + `GET /api/server-logs?tail=` — RustDedicated container logs.
+- `GET /server-logs` + `GET /api/server-logs?tail=&since=` — RustDedicated container logs
+  (JSON `{ logs }`). `tail` capped at 5000; `since` is a unix-seconds cutoff.
+- `GET /api/server-logs.txt?tail=&since=` — same logs as **raw `text/plain`**, for
+  piping into CLI tools like Claude Code (default `tail=500`). See
+  [server-logs-api.md](server-logs-api.md).
 - `GET /web-logs` + `GET /api/web-logs?tail=&level=&category=` — in-memory web log
   (`logger.ts`), filterable by level/category.
+
+### Programmatic / token auth
+The two `/api/server-logs*` endpoints accept **either** a browser session cookie **or** a
+static bearer token (`LOGS_API_TOKEN` env, default empty = disabled), supplied as
+`Authorization: Bearer <token>`, `X-API-Token: <token>`, or `?token=`. This is the only
+auth path that works without a browser, so the dashboard poll and a headless `curl` share
+one endpoint. Unauthorized requests return HTTP `401`. All other `/api/*` routes remain
+session-only.
