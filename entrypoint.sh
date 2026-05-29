@@ -26,25 +26,45 @@ if [ -f "${SETTINGS_FILE}" ]; then
     _val=$(jq -r '.gslt // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_GSLT="$_val"
 fi
 
-# Update server if enabled or if server binary is missing (first run)
+# Update server if enabled or if server binary is missing (first run).
+# Rust's depot frequently fails the first SteamCMD pass with "Error! App '258550' state
+# is 0x6" — a transient depot error (or low disk). Retry a few times before giving up.
+# Running steamcmd as the `until` condition keeps `set -e` from killing the script on a
+# failed attempt, so a persistent failure can still fall back to an existing install
+# instead of crash-looping the container.
 if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
     echo "==> Updating Rust Dedicated Server (AppID 258550)..."
-    ${STEAMCMD} \
+    _attempt=1
+    _max_attempts="${RUST_UPDATE_MAX_ATTEMPTS:-5}"
+    until ${STEAMCMD} \
         +@sSteamCmdForcePlatformType linux \
         +force_install_dir "${RUST_SERVER_DIR}" \
         +login anonymous \
         +app_update 258550 validate \
-        +quit
+        +quit; do
+        if [ "${_attempt}" -ge "${_max_attempts}" ]; then
+            echo "==> SteamCMD update failed after ${_max_attempts} attempts."
+            echo "==> Likely causes: low disk space (check 'df -h') or a Steam depot outage."
+            break
+        fi
+        echo "==> SteamCMD update failed (attempt ${_attempt}/${_max_attempts}); retrying in 15s..."
+        df -h "${RUST_SERVER_DIR}" 2>/dev/null || true
+        _attempt=$((_attempt + 1))
+        sleep 15
+    done
 else
     echo "==> Skipping server update (RUST_UPDATE_ON_START=0)."
 fi
 
 if [ ! -f "./RustDedicated" ]; then
     echo "ERROR: RustDedicated binary not found in ${RUST_SERVER_DIR}"
-    echo "SteamCMD may have failed to download the server files."
+    echo "SteamCMD could not download the server files. Check disk space (df -h) and retry,"
+    echo "or set RUST_UPDATE_ON_START=0 once a good install exists to skip the update."
     ls -la "${RUST_SERVER_DIR}"
     exit 1
 fi
+
+echo "==> RustDedicated binary present — continuing boot."
 
 # Install uMod (Oxide) if enabled
 if [ "${UMOD_ENABLED:-1}" = "1" ]; then
