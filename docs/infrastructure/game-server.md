@@ -12,9 +12,22 @@ The `rust-server` container's lifecycle is driven entirely by `entrypoint.sh`.
    Each present key overrides the matching env var via `jq` — `serverName`, `mapSeed`,
    `worldSize`, `maxPlayers`, ports, `updateOnStart`, `umodEnabled`, `gslt`, etc.
    Env vars are the fallback when a key is absent.
-2. **SteamCMD update** — if `RUST_UPDATE_ON_START=1` (default) *or* the `RustDedicated`
-   binary is missing, run `app_update 258550 validate`. Otherwise skip. Aborts with a
-   directory listing if the binary still isn't present afterward.
+2. **Intelligent update check** (modeled on Didstopia/rust-server) — decide whether to
+   touch the Steam depot at all:
+   - **No binary** → first install with `app_update 258550 validate`.
+   - **`RUST_UPDATE_ON_START=0`** → skip the check, boot the installed build.
+   - **`RUST_VALIDATE=1`** → force a full validate/repair (use to fix a corrupt/half-applied
+     install, then set back to `0`).
+   - **Otherwise** → compare the **installed build id** (from
+     `steamapps/appmanifest_258550.acf`) with the **latest published build id** for
+     `RUST_BRANCH` (default `public`, queried via `app_info_print`). Update only when they
+     differ; an already-current server boots after a ~5s info check with no download/validate.
+
+   All update paths share a retry loop with **self-heal**: on a persistent `state is 0x6`,
+   it clears the stale manifest + staging and forces a clean validate. Failures fall back to
+   booting an existing install; it aborts with a directory listing only if no binary exists.
+   Knobs: `RUST_UPDATE_ON_START`, `RUST_BRANCH`, `RUST_VALIDATE`, `RUST_UPDATE_MAX_ATTEMPTS`,
+   `RUST_STOP_TIMEOUT`.
 3. **uMod/Oxide install** — if `UMOD_ENABLED=1`, run `install-umod.sh` then
    `install-plugins.sh` (see [umod-oxide.md](../plugins/umod-oxide.md)).
 4. **Copy `.cfg` files** — copy `/cfg/*.cfg` into

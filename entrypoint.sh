@@ -26,45 +26,85 @@ if [ -f "${SETTINGS_FILE}" ]; then
     _val=$(jq -r '.gslt // empty' "${SETTINGS_FILE}"); [ -n "$_val" ] && RUST_SERVER_GSLT="$_val"
 fi
 
-# Update server if enabled or if server binary is missing (first run).
-# Rust's depot frequently fails the first SteamCMD pass with "Error! App '258550' state
-# is 0x6" — a transient depot error (or low disk). Retry a few times before giving up.
-# Running steamcmd as the `until` condition keeps `set -e` from killing the script on a
-# failed attempt, so a persistent failure can still fall back to an existing install
-# instead of crash-looping the container.
-if [ "${RUST_UPDATE_ON_START:-1}" = "1" ] || [ ! -f "./RustDedicated" ]; then
-    echo "==> Updating Rust Dedicated Server (AppID 258550)..."
-    _attempt=1
-    _max_attempts="${RUST_UPDATE_MAX_ATTEMPTS:-5}"
-    _cleaned=0
+# ─── Intelligent update check (modeled on Didstopia/rust-server) ──────────────
+# Only touch the Steam depot when the build actually changed: compare the installed build
+# id (from the local app manifest) against the latest published build id (queried cheaply
+# via `app_info_print`). A normal restart with no new build does a ~5s info check and boots
+# straight away — no re-download, no full re-validate. `validate` is reserved for first
+# install, an explicit RUST_VALIDATE=1, and the self-heal path.
+APP_ID=258550
+RUST_BRANCH="${RUST_BRANCH:-public}"
+MANIFEST="${RUST_SERVER_DIR}/steamapps/appmanifest_${APP_ID}.acf"
+
+# Build id currently installed, read from the Steam app manifest (empty if none).
+installed_buildid() {
+    [ -f "${MANIFEST}" ] || return 0
+    grep '"buildid"' "${MANIFEST}" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1
+}
+
+# Latest published build id for the configured branch (empty if Steam is unreachable).
+latest_buildid() {
+    ${STEAMCMD} +login anonymous +app_info_update 1 +app_info_print "${APP_ID}" +quit 2>/dev/null \
+        | awk -v branch="\"${RUST_BRANCH}\"" '
+            /"branches"/ { inbr = 1 }
+            inbr && $0 ~ branch { inb = 1 }
+            inb && /"buildid"/ { gsub(/[^0-9]/, ""); print; exit }'
+}
+
+# Run app_update with retry + self-heal. $1 = "validate" (or empty for a plain delta update).
+# Returns non-zero on persistent failure; callers neutralize it so set -e can't crash-loop.
+run_steamcmd_update() {
+    local validate="$1" attempt=1 cleaned=0
+    local max_attempts="${RUST_UPDATE_MAX_ATTEMPTS:-5}"
     until ${STEAMCMD} \
         +@sSteamCmdForcePlatformType linux \
         +force_install_dir "${RUST_SERVER_DIR}" \
         +login anonymous \
-        +app_update 258550 validate \
+        +app_update "${APP_ID}" ${validate} \
         +quit; do
-        if [ "${_attempt}" -ge "${_max_attempts}" ]; then
-            echo "==> SteamCMD update failed after ${_max_attempts} attempts."
+        if [ "${attempt}" -ge "${max_attempts}" ]; then
+            echo "==> SteamCMD update failed after ${max_attempts} attempts."
             echo "==> Likely causes: low disk space (check 'df -h') or a Steam depot outage."
-            break
+            return 1
         fi
-        # A persistent "state is 0x6" (reconfiguring -> unknown, no download) means a stale
-        # or half-applied install manifest SteamCMD can't reconcile. After the first retry,
-        # clear the manifest + staging so the next pass does a clean validate/repair. Game
-        # saves live in server/<identity> and are NOT touched.
-        if [ "${_attempt}" -ge 2 ] && [ "${_cleaned}" -eq 0 ]; then
-            echo "==> Clearing stale Steam app manifest + staging for a clean re-validate..."
-            rm -f "${RUST_SERVER_DIR}/steamapps/appmanifest_258550.acf"
+        # A persistent "state is 0x6" means a stale / half-applied manifest SteamCMD can't
+        # reconcile. Clear it + staging and force a full validate to repair. Game saves in
+        # server/<identity> are NOT touched.
+        if [ "${attempt}" -ge 2 ] && [ "${cleaned}" -eq 0 ]; then
+            echo "==> Clearing stale Steam app manifest + staging and forcing a validate repair..."
+            rm -f "${MANIFEST}"
             rm -rf "${RUST_SERVER_DIR}/steamapps/downloading" "${RUST_SERVER_DIR}/steamapps/temp"
-            _cleaned=1
+            validate="validate"
+            cleaned=1
         fi
-        echo "==> SteamCMD update failed (attempt ${_attempt}/${_max_attempts}); retrying in 15s..."
+        echo "==> SteamCMD update failed (attempt ${attempt}/${max_attempts}); retrying in 15s..."
         df -h "${RUST_SERVER_DIR}" 2>/dev/null || true
-        _attempt=$((_attempt + 1))
+        attempt=$((attempt + 1))
         sleep 15
     done
+    return 0
+}
+
+if [ ! -f "./RustDedicated" ]; then
+    echo "==> No server binary found — performing first install (with validate)..."
+    run_steamcmd_update "validate" || echo "==> First install did not complete cleanly."
+elif [ "${RUST_UPDATE_ON_START:-1}" = "0" ]; then
+    echo "==> Update check disabled (RUST_UPDATE_ON_START=0); booting installed build."
+elif [ "${RUST_VALIDATE:-0}" = "1" ]; then
+    echo "==> RUST_VALIDATE=1 — forcing a full validate/repair..."
+    run_steamcmd_update "validate" || echo "==> Validate did not complete; booting existing install."
 else
-    echo "==> Skipping server update (RUST_UPDATE_ON_START=0)."
+    _installed="$(installed_buildid || true)"
+    echo "==> Checking for updates (branch: ${RUST_BRANCH}, installed build: ${_installed:-unknown})..."
+    _latest="$(latest_buildid || true)"
+    if [ -z "${_latest}" ]; then
+        echo "==> Could not reach Steam for the latest build id; keeping current install."
+    elif [ -n "${_installed}" ] && [ "${_installed}" = "${_latest}" ]; then
+        echo "==> Already on the latest build (${_installed}); skipping update."
+    else
+        echo "==> Update available (${_installed:-none} -> ${_latest}); updating with validate..."
+        run_steamcmd_update "validate" || echo "==> Update did not complete; booting existing install."
+    fi
 fi
 
 if [ ! -f "./RustDedicated" ]; then

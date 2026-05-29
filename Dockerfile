@@ -10,6 +10,7 @@ RUN apt-get update && \
         curl \
         unzip \
         jq \
+        gawk \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUST_SERVER_DIR="/rust"

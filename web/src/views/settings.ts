@@ -142,7 +142,7 @@ export function settingsPage(data: { settings: ServerSettings | null; error?: st
 
       ${section("Startup Options", `
         <div class="space-y-3">
-          ${checkbox({ name: "updateOnStart", label: "Update server via SteamCMD on start", checked: s?.updateOnStart ?? true })}
+          ${checkbox({ name: "updateOnStart", label: "Check for a newer build on start (updates only when one is available)", checked: s?.updateOnStart ?? true })}
           ${checkbox({ name: "umodEnabled", label: "Enable uMod (Oxide) plugin framework", checked: s?.umodEnabled ?? true })}
         </div>
       `)}
