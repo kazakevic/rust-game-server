@@ -12,7 +12,13 @@ Status/stats tiles (running state, uptime, CPU, memory) plus live `serverinfo` v
 (hostname, players, map, FPS). Server controls and (when running) plugin/world/weather
 controls. **Live, no full-page reload:** the page polls `GET /api/server/status` every 5s
 and updates tiles + swaps the Start↔Stop controls in place (uptime ticks every 1s).
-- `GET /api/server/status` — JSON `{ status, stats, serverInfo }` for the live poll.
+- **Map tile** shows the current map name with a `Seed … · Size … · RustMaps ↗` detail line
+  linking to `https://rustmaps.com/map/{size}_{seed}`. Seed/size come from the live
+  `server.seed`/`server.worldsize` convars over RCON (cached per boot — keyed by
+  `startedAt`, since the map can't change without a restart); when the server is down it
+  falls back to `/cfg/server-settings.json`, then the `RUST_SERVER_SEED`/`_WORLDSIZE` env.
+- `GET /api/server/status` — JSON `{ status, stats, serverInfo }` for the live poll
+  (`serverInfo` includes `mapSeed` + `worldSize`).
 - `GET /api/server/update/check` — **Check for updates** button: execs
   `scripts/update-check.sh` in the game-server container to compare the installed Rust
   build id against the latest published one, returning `{ installed, latest, branch,

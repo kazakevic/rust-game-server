@@ -70,11 +70,42 @@ function sessionOrTokenAuth(
   return validateApiToken(getApiToken(headers, query));
 }
 
+// Seed/size of the live map, used for the dashboard's RustMaps link. Queried over RCON
+// once per server boot (the map can't change without a restart, so cache by startedAt);
+// when the server is down, fall back to the configured values it would boot with.
+let mapInfoCache: { startedAt: string; seed: string; size: string } | null = null;
+
+async function getMapInfo(status: { running: boolean; startedAt: string }): Promise<{ seed: string; size: string }> {
+  if (status.running) {
+    if (mapInfoCache && mapInfoCache.startedAt === status.startedAt) return mapInfoCache;
+    try {
+      const [seedRaw, sizeRaw] = await Promise.all([
+        rcon.command("server.seed"),
+        rcon.command("server.worldsize"),
+      ]);
+      const seed = seedRaw.match(/(\d+)/)?.[1] ?? "";
+      const size = sizeRaw.match(/(\d+)/)?.[1] ?? "";
+      if (seed && size) {
+        mapInfoCache = { startedAt: status.startedAt, seed, size };
+        return mapInfoCache;
+      }
+    } catch {}
+  }
+  try {
+    const file = Bun.file("/cfg/server-settings.json");
+    if (await file.exists()) {
+      const s = await file.json();
+      if (s.mapSeed && s.worldSize) return { seed: String(s.mapSeed), size: String(s.worldSize) };
+    }
+  } catch {}
+  return { seed: process.env.RUST_SERVER_SEED || "", size: process.env.RUST_SERVER_WORLDSIZE || "" };
+}
+
 // Container status + stats + live serverinfo, shared by the dashboard page and its poll endpoint.
 async function getDashboardState() {
   const [status, stats] = await Promise.all([getServerStatus(), getServerStats()]);
 
-  const serverInfo = { hostname: "", players: "", maxPlayers: "", map: "", fps: "" };
+  const serverInfo = { hostname: "", players: "", maxPlayers: "", map: "", fps: "", mapSeed: "", worldSize: "" };
   if (status.running) {
     try {
       const raw = await rcon.command("serverinfo");
@@ -86,6 +117,9 @@ async function getDashboardState() {
       serverInfo.fps = String(info.Framerate ?? info.Fps ?? "");
     } catch {}
   }
+  const mapInfo = await getMapInfo(status);
+  serverInfo.mapSeed = mapInfo.seed;
+  serverInfo.worldSize = mapInfo.size;
 
   return { status, stats, serverInfo, scheduler: getSchedulerStatus() };
 }

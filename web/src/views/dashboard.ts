@@ -13,8 +13,16 @@ interface SchedulerState {
 interface DashboardData {
   status: { running: boolean; status: string; startedAt: string };
   stats: { cpu: string; memoryUsed: string; memoryLimit: string; memoryPercent: string };
-  serverInfo: { hostname: string; players: string; maxPlayers: string; map: string; fps: string };
+  serverInfo: { hostname: string; players: string; maxPlayers: string; map: string; fps: string; mapSeed: string; worldSize: string };
   scheduler: SchedulerState;
+}
+
+// Seed/size detail under the Map tile, with a RustMaps link when both are known.
+// Mirrored client-side in mapDetailHtml() for live updates.
+function mapDetail(si: { mapSeed: string; worldSize: string }): string {
+  if (!si.mapSeed || !si.worldSize) return "";
+  const url = `https://rustmaps.com/map/${si.worldSize}_${si.mapSeed}`;
+  return `Seed ${si.mapSeed} · Size ${si.worldSize} · <a href="${url}" target="_blank" rel="noopener" class="text-blue-600 hover:underline">RustMaps ↗</a>`;
 }
 
 export function dashboardPage(data: DashboardData) {
@@ -74,7 +82,7 @@ export function dashboardPage(data: DashboardData) {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
       ${statsCard("Hostname", serverInfo.hostname || "N/A", { valueId: "tile-hostname" })}
       ${statsCard("Players", `${serverInfo.players || "0"} / ${serverInfo.maxPlayers || "0"}`, { valueId: "tile-players" })}
-      ${statsCard("Map", serverInfo.map || "N/A", { valueId: "tile-map" })}
+      ${statsCard("Map", serverInfo.map || "N/A", { valueId: "tile-map", detail: mapDetail(serverInfo), detailId: "tile-map-detail" })}
       ${statsCard("Server FPS", serverInfo.fps || "N/A", { valueId: "tile-fps" })}
     </div>
 
@@ -173,6 +181,13 @@ export function dashboardPage(data: DashboardData) {
         return '<span class="flex items-center gap-2.5">' + dot + '<span class="' + textCls + ' font-medium">' + esc(text) + '</span></span>';
       }
 
+      function mapDetailHtml(si) {
+        if (!si.mapSeed || !si.worldSize) return '';
+        const url = 'https://rustmaps.com/map/' + encodeURIComponent(si.worldSize) + '_' + encodeURIComponent(si.mapSeed);
+        return 'Seed ' + esc(si.mapSeed) + ' · Size ' + esc(si.worldSize) +
+          ' · <a href="' + url + '" target="_blank" rel="noopener" class="text-blue-600 hover:underline">RustMaps ↗</a>';
+      }
+
       function tickUptime() {
         setText('tile-uptime', lastRunning && lastStartedAt ? timeSince(lastStartedAt) : 'N/A');
       }
@@ -186,6 +201,7 @@ export function dashboardPage(data: DashboardData) {
         setText('tile-hostname', si.hostname || 'N/A');
         setText('tile-players', (si.players || '0') + ' / ' + (si.maxPlayers || '0'));
         setText('tile-map', si.map || 'N/A');
+        const md = el('tile-map-detail'); if (md) md.innerHTML = mapDetailHtml(si);
         setText('tile-fps', si.fps || 'N/A');
         tickUptime();
       }
